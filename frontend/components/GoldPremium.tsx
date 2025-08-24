@@ -19,7 +19,8 @@ const GoldPremium = () => {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const res = await fetch('http://127.0.0.1:5000/api/gold-premium');
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:5000';
+        const res = await fetch(`${apiUrl}/api/gold-premium`);
         if (!res.ok) {
           throw new Error(`HTTP error! status: ${res.status}`);
         }

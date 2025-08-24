@@ -28,7 +28,8 @@ const InvestmentStrategy = () => {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const res = await fetch('http://127.0.0.1:5000/api/investment-strategy');
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:5000';
+        const res = await fetch(`${apiUrl}/api/investment-strategy`);
         if (!res.ok) {
           throw new Error(`HTTP error! status: ${res.status}`);
         }
