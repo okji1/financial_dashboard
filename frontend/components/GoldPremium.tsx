@@ -26,8 +26,12 @@ const GoldPremium = () => {
         }
         const result = await res.json();
         setData(result);
-      } catch (e: any) {
-        setError(e.message);
+      } catch (e) {
+        if (e instanceof Error) {
+          setError(e.message);
+        } else {
+          setError(String(e));
+        }
       } finally {
         setLoading(false);
       }
