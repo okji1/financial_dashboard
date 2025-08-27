@@ -103,13 +103,13 @@ def get_gold_premium():
         response = requests.get(intl_url, headers={'User-Agent': 'Mozilla/5.0'})
         response.raise_for_status()
         soup = BeautifulSoup(response.text, 'html.parser')
-        
-        # Updated selector and parsing logic
-        price_element = soup.select_one('div.price')
-        if not price_element:
-            return jsonify({"error": "국제 금 시세 크롤링 실패: 가격 정보를 담은 HTML 요소를 찾을 수 없습니다."}), 500
-        
-        price_text = price_element.text.split(' ')[0]
+
+        # New resilient scraping logic
+        unit_element = soup.find(string=lambda text: "USD/OZS" in text if text else False)
+        if not unit_element:
+            return jsonify({"error": "국제 금 시세 크롤링 실패: 가격 단위를 포함한 HTML 요소를 찾을 수 없습니다."}), 500
+
+        price_text = unit_element.strip().split(' ')[0]
         price_str = price_text.replace(',', '')
         results['international_price_usd_oz'] = float(price_str)
 
@@ -123,7 +123,7 @@ def get_gold_premium():
         # 3. 환율 정보 (한국수출입은행 API)
         today = datetime.date.today()
         usd_krw_rate = None
-        for i in range(7): # 최대 7일 전까지 조회
+        for i in range(7):
             search_date = today - datetime.timedelta(days=i)
             exchange_url = f"https://www.koreaexim.go.kr/site/program/financial/exchangeJSON?authkey={EXCHANGE_RATE_API_KEY}&searchdate={search_date.strftime('%Y%m%d')}&data=AP01"
             response = requests.get(exchange_url)
@@ -141,8 +141,8 @@ def get_gold_premium():
         if not usd_krw_rate:
             return jsonify({"error": "환율 정보를 가져올 수 없습니다."}), 500
 
-        # 4. 금 프리미엄 계산
-        oz_to_g = 28.3495
+        # 4. 금 프리미엄 계산 (Using Troy Ounce)
+        oz_to_g = 31.1035 # Correct conversion for Troy Ounce
         intl_price_usd_g = results['international_price_usd_oz'] / oz_to_g
         intl_price_krw_g = intl_price_usd_g * usd_krw_rate
         results['converted_intl_price_krw_g'] = intl_price_krw_g
