@@ -104,14 +104,23 @@ def get_gold_premium():
         response.raise_for_status()
         soup = BeautifulSoup(response.text, 'html.parser')
 
-        # New resilient scraping logic
+        # New robust scraping logic 2.0
         unit_element = soup.find(string=lambda text: "USD/OZS" in text if text else False)
         if not unit_element:
             return jsonify({"error": "국제 금 시세 크롤링 실패: 가격 단위를 포함한 HTML 요소를 찾을 수 없습니다."}), 500
 
-        price_text = unit_element.strip().split(' ')[0]
-        price_str = price_text.replace(',', '')
-        results['international_price_usd_oz'] = float(price_str)
+        parent_container = unit_element.find_parent()
+        price_text = None
+        for text_node in parent_container.find_all(string=True, recursive=True):
+            cleaned_text = text_node.strip().replace(',', '')
+            if cleaned_text.replace('.', '', 1).isdigit():
+                price_text = cleaned_text
+                break
+        
+        if not price_text:
+            return jsonify({"error": "국제 금 시세 크롤링 실패: 가격 컨테이너에서 숫자 가격을 찾을 수 없습니다."}), 500
+
+        results['international_price_usd_oz'] = float(price_text)
 
         # 2. 국내 금 시세 (네이버 증권 API)
         domestic_url = "https://m.stock.naver.com/front-api/marketIndex/prices?category=metals&reutersCode=M04020000&page=1"
