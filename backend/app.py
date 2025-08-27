@@ -104,11 +104,13 @@ def get_gold_premium():
         response.raise_for_status()
         soup = BeautifulSoup(response.text, 'html.parser')
         
-        price_element = soup.select_one('strong.DetailInfo_price__I_VJn')
+        # Updated selector and parsing logic
+        price_element = soup.select_one('div.price')
         if not price_element:
-            return jsonify({"error": "국제 금 시세 크롤링 실패: 네이버 금융 페이지의 HTML 구조가 변경되었을 수 있습니다."}), 500
+            return jsonify({"error": "국제 금 시세 크롤링 실패: 가격 정보를 담은 HTML 요소를 찾을 수 없습니다."}), 500
         
-        price_str = price_element.text.replace(',', '')
+        price_text = price_element.text.split(' ')[0]
+        price_str = price_text.replace(',', '')
         results['international_price_usd_oz'] = float(price_str)
 
         # 2. 국내 금 시세 (네이버 증권 API)
