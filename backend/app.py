@@ -1,4 +1,3 @@
-
 import os
 import requests
 from bs4 import BeautifulSoup
@@ -7,6 +6,7 @@ from flask_cors import CORS
 from dotenv import load_dotenv
 from supabase import create_client, Client
 import datetime
+from datetime import timezone
 
 # .env 파일에서 환경 변수 로드
 load_dotenv()
@@ -49,13 +49,12 @@ def get_kis_token():
         response = supabase.table('kis_token').select('*').order('created_at', desc=True).limit(1).execute()
         if response.data:
             token_data = response.data[0]
-            # 토큰 만료 시간 확인 (24시간 유효)
             created_at = datetime.datetime.fromisoformat(token_data['created_at'])
-            if datetime.datetime.now() - created_at < datetime.timedelta(hours=23, minutes=55):
+            # Timezone-aware datetime으로 비교
+            if datetime.datetime.now(timezone.utc) - created_at < datetime.timedelta(hours=23, minutes=55):
                 return token_data['access_token'], "Token from Supabase"
     except Exception as e:
         print(f"Supabase에서 토큰 조회 실패: {e}")
-
 
     # 2. 토큰이 없거나 만료되었으면 새로 발급
     path = "/oauth2/tokenP"
@@ -98,14 +97,18 @@ def health_check():
 def get_gold_premium():
     """국제/국내 금 시세 및 환율을 가져와 프리미엄을 계산합니다."""
     results = {}
-    
     try:
         # 1. 국제 금 시세 (네이버 금융 크롤링)
         intl_url = "https://m.stock.naver.com/marketindex/metals/GCcv1"
         response = requests.get(intl_url, headers={'User-Agent': 'Mozilla/5.0'})
         response.raise_for_status()
         soup = BeautifulSoup(response.text, 'html.parser')
-        price_str = soup.select_one('strong.DetailInfo_price__I_VJn').text.replace(',', '')
+        
+        price_element = soup.select_one('strong.DetailInfo_price__I_VJn')
+        if not price_element:
+            return jsonify({"error": "국제 금 시세 크롤링 실패: 네이버 금융 페이지의 HTML 구조가 변경되었을 수 있습니다."}), 500
+        
+        price_str = price_element.text.replace(',', '')
         results['international_price_usd_oz'] = float(price_str)
 
         # 2. 국내 금 시세 (네이버 증권 API)
@@ -137,14 +140,11 @@ def get_gold_premium():
             return jsonify({"error": "환율 정보를 가져올 수 없습니다."}), 500
 
         # 4. 금 프리미엄 계산
-        # 1 온스 = 28.3495 그램
         oz_to_g = 28.3495
-        # 국제 금 시세 (USD/oz -> KRW/g)
         intl_price_usd_g = results['international_price_usd_oz'] / oz_to_g
         intl_price_krw_g = intl_price_usd_g * usd_krw_rate
         results['converted_intl_price_krw_g'] = intl_price_krw_g
 
-        # 프리미엄 계산 (%)
         premium = ((results['domestic_price_krw_g'] - intl_price_krw_g) / intl_price_krw_g) * 100
         results['premium_percentage'] = premium
 
@@ -164,30 +164,7 @@ def get_investment_strategy():
         return jsonify({"error": "Failed to get KIS token", "details": message}), 500
 
     # --- 분석 로직 (기술서 기반) ---
-    # 이 부분은 KIS API의 실제 응답 형식을 보며 구현해야 합니다.
-    # 현재는 기술서의 내용을 바탕으로 한 가상의 로직입니다.
-    
-    # 예시: 일자별 시세 조회 ([해외선물-018])
-    headers = {
-        "content-type": "application/json",
-        "authorization": f"Bearer {access_token}",
-        "appkey": KIS_APP_KEY,
-        "appsecret": KIS_APP_SECRET,
-        "tr_id": "HHDFS76200200" # 일자별 시세
-    }
-    params = {
-        "EXCD": "NAS", # 거래소코드
-        "SYMB": "GCZ24", # 종목코드 (예: 24년 12월물 금) - 실제 코드는 확인 필요
-        "GUBN": "0", # 일/주/월 구분
-        "BYMD": "", # 조회종료일자
-        "MODP": "0" # 수정주가반영여부
-    }
-    
-    # 실제 API 엔드포인트 경로는 `api키.pdf`에 명시된 것을 사용해야 합니다.
-    # "execution_trend": "/uapi/overseas-futureoption/v1/quotations/inquire-daily-price"
-    # 이 부분은 현재 문서에 없어 가상의 tr_id를 사용했습니다. 실제 구현 시 확인이 필요합니다.
-    
-    # 가상 데이터로 응답 생성
+    # 현재는 가상 데이터 반환
     strategy_data = {
         "market_condition": "강력한 상승 전망",
         "recommended_strategy": "콜(Call) 옵션 매수",
