@@ -21,10 +21,12 @@ const GoldPremium = () => {
       try {
         const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:5000';
         const res = await fetch(`${apiUrl}/api/gold-premium`);
-        if (!res.ok) {
-          throw new Error(`HTTP error! status: ${res.status}`);
-        }
         const result = await res.json();
+
+        if (!res.ok) {
+          throw new Error(result.error || `HTTP error! status: ${res.status}`);
+        }
+
         setData(result);
       } catch (e) {
         if (e instanceof Error) {
