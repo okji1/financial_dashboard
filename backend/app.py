@@ -399,39 +399,15 @@ def get_investment_strategy():
         
         data = response.data[0]
         
-        return jsonify({
-            "market_condition": data['market_condition'],
-            "recommended_strategy": data['recommended_strategy'],
-            "supporting_data": {
-                "average_change_rate": data['average_change_rate'],
-                "total_volume": data['total_volume'],
-                "analyzed_symbols": data['analyzed_symbols']
-            },
-            "detailed_analysis": data['detailed_analysis'],
-            "analysis_time": data['created_at'],
-            "message": "실제 KIS API 데이터를 기반으로 한 분석입니다 (10분마다 업데이트)"
-        })
+        # detailed_analysis가 제대로 있는지 확인하고 로그 출력
+        detailed_analysis = data.get('detailed_analysis', [])
+        print(f"[DEBUG] detailed_analysis: {detailed_analysis}")
+        print(f"[DEBUG] detailed_analysis 타입: {type(detailed_analysis)}")
+        print(f"[DEBUG] detailed_analysis 길이: {len(detailed_analysis) if detailed_analysis else 0}")
         
-    except Exception as e:
-        return jsonify({"error": f"데이터 조회 중 오류 발생: {e}"}), 500
-
-# 수동 데이터 정리를 위한 API 엔드포인트
-@app.route('/api/cleanup')
-def manual_cleanup():
-    """수동으로 오래된 데이터를 정리합니다."""
-    try:
-        cleanup_old_data()
-        return jsonify({"message": "데이터 정리가 완료되었습니다."})
-    except Exception as e:
-        return jsonify({"error": f"데이터 정리 중 오류 발생: {e}"}), 500
-
-# Flask 앱 시작 시 백그라운드 작업 시작
-@app.before_request
-def initialize_background():
-    global background_started
-    if not background_started:
-        start_background_tasks()
-
-if __name__ == '__main__':
-    start_background_tasks()
-    app.run(debug=True, port=int(os.getenv("PORT", 5000)))
+        # raw_data_summary를 더 구체적으로 만들기
+        raw_data_summary = {}
+        if detailed_analysis and len(detailed_analysis) > 0:
+            raw_data_summary = {
+                "price_trend": f"{len(detailed_analysis)}개 종목 실시간 분석",
+                "speculation_position": f"평균 변동률: {data.get('average_change_rate', 0):.2f}%",
