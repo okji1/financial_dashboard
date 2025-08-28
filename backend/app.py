@@ -117,7 +117,7 @@ def get_gold_premium():
         usd_krw_rate = None
         for i in range(7):
             search_date = today - datetime.timedelta(days=i)
-            exchange_url = f"https://www.koreaexim.go.kr/site/program/financial/exchangeJSON?authkey={EXCHANGE_RATE_API_KEY}&searchdate={search_date.strftime('%Y%m%d')}&data=AP01"
+            exchange_url = f"https://oapi.koreaexim.go.kr/site/program/financial/exchangeJSON?authkey={EXCHANGE_RATE_API_KEY}&searchdate={search_date.strftime('%Y%m%d')}&data=AP01"
             response = requests.get(exchange_url)
             response.raise_for_status()
             exchange_data = response.json()
