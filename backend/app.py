@@ -43,6 +43,64 @@ except Exception as e:
 
 # --- Helper Functions ---
 
+def cleanup_old_data():
+    """오래된 데이터를 삭제하는 함수"""
+    if not supabase:
+        print("Supabase 클라이언트가 초기화되지 않았습니다.")
+        return
+    
+    try:
+        # 현재 시간에서 7일 전 계산
+        week_ago = (datetime.datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+        
+        # 7일 이상 된 금 시세 데이터 삭제
+        gold_delete_result = supabase.table('gold_prices').delete().lt('created_at', week_ago).execute()
+        gold_deleted_count = len(gold_delete_result.data) if gold_delete_result.data else 0
+        
+        # 7일 이상 된 투자 전략 데이터 삭제
+        strategy_delete_result = supabase.table('investment_strategies').delete().lt('created_at', week_ago).execute()
+        strategy_deleted_count = len(strategy_delete_result.data) if strategy_delete_result.data else 0
+        
+        # 만료된 토큰 삭제 (25시간 이상 된 토큰)
+        token_expire_time = (datetime.datetime.now(timezone.utc) - timedelta(hours=25)).isoformat()
+        token_delete_result = supabase.table('kis_token').delete().lt('created_at', token_expire_time).execute()
+        token_deleted_count = len(token_delete_result.data) if token_delete_result.data else 0
+        
+        print(f"[{datetime.datetime.now()}] 데이터 정리 완료:")
+        print(f"  - 금 시세 데이터 삭제: {gold_deleted_count}개")
+        print(f"  - 투자 전략 데이터 삭제: {strategy_deleted_count}개") 
+        print(f"  - 만료된 토큰 삭제: {token_deleted_count}개")
+        
+    except Exception as e:
+        print(f"[{datetime.datetime.now()}] 데이터 정리 중 오류: {e}")
+
+def daily_cleanup():
+    """매일 자정에 오래된 데이터를 정리하는 백그라운드 함수"""
+    while True:
+        try:
+            # 현재 시간 가져오기
+            now = datetime.datetime.now()
+            
+            # 다음 자정까지의 시간 계산
+            tomorrow = now.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
+            seconds_until_midnight = (tomorrow - now).total_seconds()
+            
+            print(f"[{now}] 다음 데이터 정리까지 {seconds_until_midnight/3600:.1f}시간 대기...")
+            
+            # 자정까지 대기
+            time.sleep(seconds_until_midnight)
+            
+            # 데이터 정리 실행
+            cleanup_old_data()
+            
+            # 24시간 대기 (다음 자정까지)
+            time.sleep(24 * 60 * 60)
+            
+        except Exception as e:
+            print(f"[{datetime.datetime.now()}] 일일 정리 작업 오류: {e}")
+            # 오류 발생 시 1시간 후 재시도
+            time.sleep(3600)
+
 def get_kis_token():
     """Supabase에서 토큰을 가져오거나 새로 발급받습니다."""
     if not supabase:
@@ -266,12 +324,17 @@ def start_background_tasks():
     
     gold_thread = threading.Thread(target=update_gold_data, daemon=True)
     strategy_thread = threading.Thread(target=update_investment_strategy, daemon=True)
+    cleanup_thread = threading.Thread(target=daily_cleanup, daemon=True)
     
     gold_thread.start()
     strategy_thread.start()
+    cleanup_thread.start()
     
     background_started = True
     print("✅ 백그라운드 업데이트 스레드들이 성공적으로 시작되었습니다.")
+    print("   - 금 시세 업데이트: 10분마다")
+    print("   - 투자 전략 업데이트: 10분마다") 
+    print("   - 데이터 정리: 매일 자정")
 
 # --- API Routes ---
 
@@ -334,6 +397,16 @@ def get_investment_strategy():
         
     except Exception as e:
         return jsonify({"error": f"데이터 조회 중 오류 발생: {e}"}), 500
+
+# 수동 데이터 정리를 위한 API 엔드포인트
+@app.route('/api/cleanup')
+def manual_cleanup():
+    """수동으로 오래된 데이터를 정리합니다."""
+    try:
+        cleanup_old_data()
+        return jsonify({"message": "데이터 정리가 완료되었습니다."})
+    except Exception as e:
+        return jsonify({"error": f"데이터 정리 중 오류 발생: {e}"}), 500
 
 # Flask 앱 시작 시 백그라운드 작업 시작
 @app.before_request
