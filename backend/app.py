@@ -1,12 +1,13 @@
 import os
 import requests
-from bs4 import BeautifulSoup
 from flask import Flask, jsonify
 from flask_cors import CORS
 from dotenv import load_dotenv
 from supabase import create_client, Client
 import datetime
-from datetime import timezone
+from datetime import timezone, timedelta  # timedelta 추가
+import time
+import threading
 
 # .env 파일에서 환경 변수 로드
 load_dotenv()
@@ -95,187 +96,241 @@ def health_check():
 
 @app.route('/api/gold-premium')
 def get_gold_premium():
-    """국제/국내 금 시세 및 환율을 가져와 프리미엄을 계산합니다."""
-    results = {}
+    """DB에서 최신 금 시세 데이터를 조회합니다."""
     try:
-        # 1. 국제 금 시세 (네이버 증권 API)
-        intl_url = "https://m.stock.naver.com/front-api/marketIndex/prices?category=metals&reutersCode=GCcv1&page=1"
-        response = requests.get(intl_url)
-        response.raise_for_status()
-        intl_data = response.json()['result'][0]
-        results['international_price_usd_oz'] = float(intl_data['closePrice'].replace(',', ''))
-
-        # 2. 국내 금 시세 (네이버 증권 API)
-        domestic_url = "https://m.stock.naver.com/front-api/marketIndex/prices?category=metals&reutersCode=M04020000&page=1"
-        response = requests.get(domestic_url)
-        response.raise_for_status()
-        domestic_data = response.json()['result'][0]
-        results['domestic_price_krw_g'] = float(domestic_data['closePrice'].replace(',', ''))
-
-        # 3. 환율 정보 (한국수출입은행 API)
-        today = datetime.date.today()
-        usd_krw_rate = None
-        for i in range(7):
-            search_date = today - datetime.timedelta(days=i)
-            exchange_url = f"https://oapi.koreaexim.go.kr/site/program/financial/exchangeJSON?authkey={EXCHANGE_RATE_API_KEY}&searchdate={search_date.strftime('%Y%m%d')}&data=AP01"
-            response = requests.get(exchange_url)
-            response.raise_for_status()
-            exchange_data = response.json()
-            if exchange_data and isinstance(exchange_data, list):
-                for item in exchange_data:
-                    if item['cur_unit'] == 'USD':
-                        usd_krw_rate = float(item['deal_bas_r'].replace(',', ''))
-                        break
-            if usd_krw_rate:
-                results['usd_krw_rate'] = usd_krw_rate
-                break
+        if not supabase:
+            return jsonify({"error": "Database connection not available"}), 500
         
-        if not usd_krw_rate:
-            return jsonify({"error": "환율 정보를 가져올 수 없습니다."}), 500
-
-        # 4. 금 프리미엄 계산 (Using Troy Ounce)
-        oz_to_g = 31.1035 # Correct conversion for Troy Ounce
-        intl_price_usd_g = results['international_price_usd_oz'] / oz_to_g
-        intl_price_krw_g = intl_price_usd_g * usd_krw_rate
-        results['converted_intl_price_krw_g'] = intl_price_krw_g
-
-        premium = ((results['domestic_price_krw_g'] - intl_price_krw_g) / intl_price_krw_g) * 100
-        results['premium_percentage'] = premium
-
-        return jsonify(results)
-
-    except requests.exceptions.RequestException as e:
-        return jsonify({"error": f"API 요청 실패: {e}"}), 500
+        # 최신 데이터 조회
+        response = supabase.table('gold_prices').select('*').order('created_at', desc=True).limit(1).execute()
+        
+        if not response.data:
+            return jsonify({"error": "금 시세 데이터가 없습니다. 잠시 후 다시 시도해주세요."}), 404
+        
+        data = response.data[0]
+        
+        return jsonify({
+            "international_price_usd_oz": data['international_price_usd_oz'],
+            "domestic_price_krw_g": data['domestic_price_krw_g'],
+            "usd_krw_rate": data['usd_krw_rate'],
+            "converted_intl_price_krw_g": (data['international_price_usd_oz'] / 31.1035) * data['usd_krw_rate'],
+            "premium_percentage": data['premium_percentage'],
+            "last_updated": data['created_at']
+        })
+        
     except Exception as e:
-        return jsonify({"error": f"데이터 처리 중 오류 발생: {e}"}), 500
-
+        return jsonify({"error": f"데이터 조회 중 오류 발생: {e}"}), 500
 
 @app.route('/api/investment-strategy')
 def get_investment_strategy():
-    """KIS API를 사용하여 금 선물 투자 전략을 분석합니다."""
-    access_token, message = get_kis_token()
-    if not access_token:
-        return jsonify({"error": "Failed to get KIS token", "details": message}), 500
-
+    """DB에서 최신 투자 전략 데이터를 조회합니다."""
     try:
-        # KIS API 헤더 설정
-        headers = {
-            "Content-Type": "application/json",
-            "authorization": f"Bearer {access_token}",
-            "appkey": KIS_APP_KEY,
-            "appsecret": KIS_APP_SECRET,
-            "tr_id": "FHKST01010100"  # 주식현재가 시세
-        }
-
-        # 금 선물 종목 코드 (예시: 금 ETF 또는 금 관련 종목)
-        # 실제로는 금 선물 코드를 사용해야 함 (예: KRX 금선물)
-        gold_symbols = [
-            "132030",  # KODEX 골드선물(H) ETF
-            "411060",  # ACE KRX금현물
-            "069500"   # KODEX 200
-        ]
-
-        strategy_results = []
+        if not supabase:
+            return jsonify({"error": "Database connection not available"}), 500
         
-        for symbol in gold_symbols:
-            # 현재가 조회
-            price_url = f"{KIS_BASE_URL}/uapi/domestic-stock/v1/quotations/inquire-price"
-            params = {
-                "FID_COND_MRKT_DIV_CODE": "J",
-                "FID_INPUT_ISCD": symbol
-            }
+        # 최신 데이터 조회
+        response = supabase.table('investment_strategies').select('*').order('created_at', desc=True).limit(1).execute()
+        
+        if not response.data:
+            return jsonify({"error": "투자 전략 데이터가 없습니다. 잠시 후 다시 시도해주세요."}), 404
+        
+        data = response.data[0]
+        
+        return jsonify({
+            "market_condition": data['market_condition'],
+            "recommended_strategy": data['recommended_strategy'],
+            "supporting_data": {
+                "average_change_rate": data['average_change_rate'],
+                "total_volume": data['total_volume'],
+                "analyzed_symbols": data['analyzed_symbols']
+            },
+            "detailed_analysis": data['detailed_analysis'],
+            "analysis_time": data['created_at'],
+            "message": "실제 KIS API 데이터를 기반으로 한 분석입니다 (10분마다 업데이트)"
+        })
+        
+    except Exception as e:
+        return jsonify({"error": f"데이터 조회 중 오류 발생: {e}"}), 500
+
+# Flask 앱 시작 시 백그라운드 작업 시작 (Flask 2.0+ 방식)
+@app.before_request
+def before_first_request():
+    if not hasattr(app, 'background_started'):
+        start_background_tasks()
+        app.background_started = True
+
+def update_gold_data():
+    """10분마다 금 시세 데이터를 업데이트하는 백그라운드 함수"""
+    while True:
+        try:
+            print(f"[{datetime.datetime.now()}] 금 시세 데이터 업데이트 시작...")  # datetime.datetime.now()로 수정
             
-            try:
-                response = requests.get(price_url, headers=headers, params=params)
+            # 1. 국제 금 시세
+            intl_url = "https://m.stock.naver.com/front-api/marketIndex/prices?category=metals&reutersCode=GCcv1&page=1"
+            response = requests.get(intl_url)
+            response.raise_for_status()
+            intl_data = response.json()['result'][0]
+            international_price = float(intl_data['closePrice'].replace(',', ''))
+
+            # 2. 국내 금 시세
+            domestic_url = "https://m.stock.naver.com/front-api/marketIndex/prices?category=metals&reutersCode=M04020000&page=1"
+            response = requests.get(domestic_url)
+            response.raise_for_status()
+            domestic_data = response.json()['result'][0]
+            domestic_price = float(domestic_data['closePrice'].replace(',', ''))
+
+            # 3. 환율 정보
+            today = datetime.date.today()
+            usd_krw_rate = None
+            for i in range(7):
+                search_date = today - timedelta(days=i)
+                exchange_url = f"https://oapi.koreaexim.go.kr/site/program/financial/exchangeJSON?authkey={EXCHANGE_RATE_API_KEY}&searchdate={search_date.strftime('%Y%m%d')}&data=AP01"
+                response = requests.get(exchange_url)
                 response.raise_for_status()
-                price_data = response.json()
-                
-                if price_data.get('rt_cd') == '0':  # 성공
-                    output = price_data.get('output', {})
-                    current_price = float(output.get('stck_prpr', 0))  # 현재가
-                    volume = int(output.get('acml_vol', 0))  # 누적거래량
-                    change_rate = float(output.get('prdy_ctrt', 0))  # 전일대비율
-                    
-                    strategy_results.append({
-                        "symbol": symbol,
-                        "current_price": current_price,
-                        "volume": volume,
-                        "change_rate": change_rate,
-                        "price_trend": "상승" if change_rate > 0 else "하락" if change_rate < 0 else "보합"
-                    })
-                    
-            except Exception as e:
-                print(f"종목 {symbol} 데이터 조회 실패: {e}")
+                exchange_data = response.json()
+                if exchange_data and isinstance(exchange_data, list):
+                    for item in exchange_data:
+                        if item['cur_unit'] == 'USD':
+                            usd_krw_rate = float(item['deal_bas_r'].replace(',', ''))
+                            break
+                if usd_krw_rate:
+                    break
+
+            if not usd_krw_rate:  # 환율을 못 가져온 경우 처리
+                print(f"[{datetime.datetime.now()}] 환율 정보를 가져올 수 없습니다.")
+                time.sleep(600)
                 continue
 
-        # 투자 전략 분석 로직
-        if strategy_results:
-            avg_change_rate = sum(item['change_rate'] for item in strategy_results) / len(strategy_results)
-            total_volume = sum(item['volume'] for item in strategy_results)
+            # 4. 프리미엄 계산
+            oz_to_g = 31.1035
+            intl_price_usd_g = international_price / oz_to_g
+            intl_price_krw_g = intl_price_usd_g * usd_krw_rate
+            premium = ((domestic_price - intl_price_krw_g) / intl_price_krw_g) * 100
+
+            # 5. DB에 저장
+            if supabase:
+                supabase.table('gold_prices').insert({
+                    'international_price_usd_oz': international_price,
+                    'domestic_price_krw_g': domestic_price,
+                    'usd_krw_rate': usd_krw_rate,
+                    'premium_percentage': premium
+                }).execute()
+                print(f"[{datetime.datetime.now()}] 금 시세 데이터 업데이트 완료")
+
+        except Exception as e:
+            print(f"[{datetime.datetime.now()}] 금 시세 업데이트 오류: {e}")
+
+        # 10분 대기
+        time.sleep(600)  # 600초 = 10분
+
+def update_investment_strategy():
+    """10분마다 투자 전략을 업데이트하는 백그라운드 함수"""
+    while True:
+        try:
+            print(f"[{datetime.datetime.now()}] 투자 전략 업데이트 시작...")
             
-            # 전략 결정 로직
-            if avg_change_rate > 1:
-                market_condition = "강력한 상승 전망"
-                recommended_strategy = "콜(Call) 옵션 매수"
-            elif avg_change_rate > 0:
-                market_condition = "약한 상승 전망"
-                recommended_strategy = "콜(Call) 옵션 매수 (소량)"
-            elif avg_change_rate < -1:
-                market_condition = "강력한 하락 전망"
-                recommended_strategy = "풋(Put) 옵션 매수"
-            elif avg_change_rate < 0:
-                market_condition = "약한 하락 전망"
-                recommended_strategy = "풋(Put) 옵션 매수 (소량)"
+            access_token, message = get_kis_token()
+            if not access_token:
+                print(f"토큰 발급 실패: {message}")
+                time.sleep(600)
+                continue
+
+            gold_symbols = ["132030", "411060", "069500"]
+            strategy_results = []
+            
+            for i, symbol in enumerate(gold_symbols):
+                if i > 0:
+                    time.sleep(1)  # API 제한 방지
+                
+                headers = {
+                    "Content-Type": "application/json",
+                    "authorization": f"Bearer {access_token}",
+                    "appkey": KIS_APP_KEY,
+                    "appsecret": KIS_APP_SECRET,
+                    "tr_id": "FHKST01010100",
+                    "custtype": "P"
+                }
+                
+                price_url = f"{KIS_BASE_URL}/uapi/domestic-stock/v1/quotations/inquire-price"
+                params = {
+                    "FID_COND_MRKT_DIV_CODE": "J",
+                    "FID_INPUT_ISCD": symbol
+                }
+                
+                try:
+                    response = requests.get(price_url, headers=headers, params=params, timeout=10)
+                    response.raise_for_status()
+                    price_data = response.json()
+                    
+                    if price_data.get('rt_cd') == '0':
+                        output = price_data.get('output', {})
+                        if output:
+                            current_price = float(output.get('stck_prpr', 0))
+                            volume = int(output.get('acml_vol', 0))
+                            change_rate = float(output.get('prdy_ctrt', 0))
+                            
+                            strategy_results.append({
+                                "symbol": symbol,
+                                "current_price": current_price,
+                                "volume": volume,
+                                "change_rate": change_rate,
+                                "price_trend": "상승" if change_rate > 0 else "하락" if change_rate < 0 else "보합"
+                            })
+                            
+                except Exception as e:
+                    print(f"종목 {symbol} 업데이트 오류: {e}")
+                    continue
+
+            # 전략 분석 및 DB 저장
+            if strategy_results:
+                avg_change_rate = sum(item['change_rate'] for item in strategy_results) / len(strategy_results)
+                total_volume = sum(item['volume'] for item in strategy_results)
+                
+                if avg_change_rate > 1:
+                    market_condition = "강력한 상승 전망"
+                    recommended_strategy = "콜(Call) 옵션 매수"
+                elif avg_change_rate > 0:
+                    market_condition = "약한 상승 전망"
+                    recommended_strategy = "콜(Call) 옵션 매수 (소량)"
+                elif avg_change_rate < -1:
+                    market_condition = "강력한 하락 전망"
+                    recommended_strategy = "풋(Put) 옵션 매수"
+                elif avg_change_rate < 0:
+                    market_condition = "약한 하락 전망"
+                    recommended_strategy = "풋(Put) 옵션 매수 (소량)"
+                else:
+                    market_condition = "횡보 전망"
+                    recommended_strategy = "관망"
+
+                if supabase:
+                    supabase.table('investment_strategies').insert({
+                        'market_condition': market_condition,
+                        'recommended_strategy': recommended_strategy,
+                        'average_change_rate': avg_change_rate,
+                        'total_volume': total_volume,
+                        'analyzed_symbols': len(strategy_results),
+                        'detailed_analysis': strategy_results
+                    }).execute()
+                    print(f"[{datetime.datetime.now()}] 투자 전략 업데이트 완료")
             else:
-                market_condition = "횡보 전망"
-                recommended_strategy = "관망"
+                print(f"[{datetime.datetime.now()}] 투자 전략 데이터 수집 실패")
 
-            strategy_data = {
-                "market_condition": market_condition,
-                "recommended_strategy": recommended_strategy,
-                "supporting_data": {
-                    "average_change_rate": round(avg_change_rate, 2),
-                    "total_volume": total_volume,
-                    "analyzed_symbols": len(strategy_results)
-                },
-                "detailed_analysis": strategy_results,
-                "analysis_time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "message": "실제 KIS API 데이터를 기반으로 한 분석입니다."
-            }
-        else:
-            # API 데이터를 가져오지 못한 경우 기본 전략 반환
-            strategy_data = {
-                "market_condition": "데이터 부족",
-                "recommended_strategy": "추가 분석 필요",
-                "supporting_data": {
-                    "error": "금 관련 종목 데이터를 가져올 수 없습니다."
-                },
-                "raw_data_summary": {},
-                "message": "KIS API 연동 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요."
-            }
+        except Exception as e:
+            print(f"[{datetime.datetime.now()}] 투자 전략 업데이트 오류: {e}")
 
-        return jsonify(strategy_data)
+        time.sleep(600)  # 10분 대기
 
-    except requests.exceptions.RequestException as e:
-        return jsonify({
-            "error": "KIS API 요청 실패", 
-            "details": str(e),
-            "fallback_strategy": {
-                "market_condition": "분석 불가",
-                "recommended_strategy": "수동 분석 권장",
-                "message": "API 연결 문제로 인해 실시간 분석이 불가능합니다."
-            }
-        }), 500
-    except Exception as e:
-        return jsonify({
-            "error": f"투자 전략 분석 중 오류 발생: {e}",
-            "fallback_strategy": {
-                "market_condition": "분석 불가",
-                "recommended_strategy": "전문가 상담 권장",
-                "message": "시스템 오류로 인해 분석이 불가능합니다."
-            }
-        }), 500
-
+# 백그라운드 스레드 시작
+def start_background_tasks():
+    """백그라운드 업데이트 스레드들을 시작합니다."""
+    gold_thread = threading.Thread(target=update_gold_data, daemon=True)
+    strategy_thread = threading.Thread(target=update_investment_strategy, daemon=True)
+    
+    gold_thread.start()
+    strategy_thread.start()
+    
+    print("백그라운드 업데이트 스레드들이 시작되었습니다.")
 
 if __name__ == '__main__':
-    app.run(debug=True, port=os.getenv("PORT", 5000))
+    start_background_tasks()  # 백그라운드 스레드 시작
+    app.run(debug=True, port=int(os.getenv("PORT", 5000)))  # port를 int로 변환
