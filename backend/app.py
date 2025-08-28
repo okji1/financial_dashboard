@@ -5,7 +5,7 @@ from flask_cors import CORS
 from dotenv import load_dotenv
 from supabase import create_client, Client
 import datetime
-from datetime import timezone, timedelta  # timedelta 추가
+from datetime import timezone, timedelta
 import time
 import threading
 
@@ -30,6 +30,9 @@ KIS_DOMAIN_CONFIG = {
     "vps": "https://openapivts.koreainvestment.com:29443"
 }
 KIS_BASE_URL = KIS_DOMAIN_CONFIG[KIS_API_MODE]
+
+# 백그라운드 작업 상태 추적
+background_started = False
 
 # Supabase 클라이언트 초기화
 try:
@@ -87,83 +90,11 @@ def get_kis_token():
         print(f"KIS 토큰 발급 API 요청 실패: {e}")
         return None, str(e)
 
-
-# --- API Routes ---
-
-@app.route('/')
-def health_check():
-    return jsonify({"status": "ok", "message": "API is running."})
-
-@app.route('/api/gold-premium')
-def get_gold_premium():
-    """DB에서 최신 금 시세 데이터를 조회합니다."""
-    try:
-        if not supabase:
-            return jsonify({"error": "Database connection not available"}), 500
-        
-        # 최신 데이터 조회
-        response = supabase.table('gold_prices').select('*').order('created_at', desc=True).limit(1).execute()
-        
-        if not response.data:
-            return jsonify({"error": "금 시세 데이터가 없습니다. 잠시 후 다시 시도해주세요."}), 404
-        
-        data = response.data[0]
-        
-        return jsonify({
-            "international_price_usd_oz": data['international_price_usd_oz'],
-            "domestic_price_krw_g": data['domestic_price_krw_g'],
-            "usd_krw_rate": data['usd_krw_rate'],
-            "converted_intl_price_krw_g": (data['international_price_usd_oz'] / 31.1035) * data['usd_krw_rate'],
-            "premium_percentage": data['premium_percentage'],
-            "last_updated": data['created_at']
-        })
-        
-    except Exception as e:
-        return jsonify({"error": f"데이터 조회 중 오류 발생: {e}"}), 500
-
-@app.route('/api/investment-strategy')
-def get_investment_strategy():
-    """DB에서 최신 투자 전략 데이터를 조회합니다."""
-    try:
-        if not supabase:
-            return jsonify({"error": "Database connection not available"}), 500
-        
-        # 최신 데이터 조회
-        response = supabase.table('investment_strategies').select('*').order('created_at', desc=True).limit(1).execute()
-        
-        if not response.data:
-            return jsonify({"error": "투자 전략 데이터가 없습니다. 잠시 후 다시 시도해주세요."}), 404
-        
-        data = response.data[0]
-        
-        return jsonify({
-            "market_condition": data['market_condition'],
-            "recommended_strategy": data['recommended_strategy'],
-            "supporting_data": {
-                "average_change_rate": data['average_change_rate'],
-                "total_volume": data['total_volume'],
-                "analyzed_symbols": data['analyzed_symbols']
-            },
-            "detailed_analysis": data['detailed_analysis'],
-            "analysis_time": data['created_at'],
-            "message": "실제 KIS API 데이터를 기반으로 한 분석입니다 (10분마다 업데이트)"
-        })
-        
-    except Exception as e:
-        return jsonify({"error": f"데이터 조회 중 오류 발생: {e}"}), 500
-
-# Flask 앱 시작 시 백그라운드 작업 시작 (Flask 2.0+ 방식)
-@app.before_request
-def before_first_request():
-    if not hasattr(app, 'background_started'):
-        start_background_tasks()
-        app.background_started = True
-
 def update_gold_data():
     """10분마다 금 시세 데이터를 업데이트하는 백그라운드 함수"""
     while True:
         try:
-            print(f"[{datetime.datetime.now()}] 금 시세 데이터 업데이트 시작...")  # datetime.datetime.now()로 수정
+            print(f"[{datetime.datetime.now()}] 금 시세 데이터 업데이트 시작...")
             
             # 1. 국제 금 시세
             intl_url = "https://m.stock.naver.com/front-api/marketIndex/prices?category=metals&reutersCode=GCcv1&page=1"
@@ -196,7 +127,7 @@ def update_gold_data():
                 if usd_krw_rate:
                     break
 
-            if not usd_krw_rate:  # 환율을 못 가져온 경우 처리
+            if not usd_krw_rate:
                 print(f"[{datetime.datetime.now()}] 환율 정보를 가져올 수 없습니다.")
                 time.sleep(600)
                 continue
@@ -215,13 +146,14 @@ def update_gold_data():
                     'usd_krw_rate': usd_krw_rate,
                     'premium_percentage': premium
                 }).execute()
-                print(f"[{datetime.datetime.now()}] 금 시세 데이터 업데이트 완료")
+                print(f"[{datetime.datetime.now()}] 금 시세 데이터 업데이트 완료 - Premium: {premium:.2f}%")
 
         except Exception as e:
             print(f"[{datetime.datetime.now()}] 금 시세 업데이트 오류: {e}")
 
         # 10분 대기
-        time.sleep(600)  # 600초 = 10분
+        print(f"[{datetime.datetime.now()}] 10분 후 다음 업데이트 예정...")
+        time.sleep(600)
 
 def update_investment_strategy():
     """10분마다 투자 전략을 업데이트하는 백그라운드 함수"""
@@ -240,7 +172,7 @@ def update_investment_strategy():
             
             for i, symbol in enumerate(gold_symbols):
                 if i > 0:
-                    time.sleep(1)  # API 제한 방지
+                    time.sleep(1)
                 
                 headers = {
                     "Content-Type": "application/json",
@@ -276,6 +208,7 @@ def update_investment_strategy():
                                 "change_rate": change_rate,
                                 "price_trend": "상승" if change_rate > 0 else "하락" if change_rate < 0 else "보합"
                             })
+                            print(f"종목 {symbol} 수집 완료: 가격 {current_price}, 변동률 {change_rate}%")
                             
                 except Exception as e:
                     print(f"종목 {symbol} 업데이트 오류: {e}")
@@ -311,26 +244,104 @@ def update_investment_strategy():
                         'analyzed_symbols': len(strategy_results),
                         'detailed_analysis': strategy_results
                     }).execute()
-                    print(f"[{datetime.datetime.now()}] 투자 전략 업데이트 완료")
+                    print(f"[{datetime.datetime.now()}] 투자 전략 업데이트 완료 - {market_condition}: {recommended_strategy}")
             else:
                 print(f"[{datetime.datetime.now()}] 투자 전략 데이터 수집 실패")
 
         except Exception as e:
             print(f"[{datetime.datetime.now()}] 투자 전략 업데이트 오류: {e}")
 
-        time.sleep(600)  # 10분 대기
+        print(f"[{datetime.datetime.now()}] 투자 전략 10분 후 다음 업데이트 예정...")
+        time.sleep(600)
 
-# 백그라운드 스레드 시작
 def start_background_tasks():
     """백그라운드 업데이트 스레드들을 시작합니다."""
+    global background_started
+    
+    if background_started:
+        print("백그라운드 작업이 이미 시작되었습니다.")
+        return
+    
+    print("백그라운드 업데이트 스레드들을 시작합니다...")
+    
     gold_thread = threading.Thread(target=update_gold_data, daemon=True)
     strategy_thread = threading.Thread(target=update_investment_strategy, daemon=True)
     
     gold_thread.start()
     strategy_thread.start()
     
-    print("백그라운드 업데이트 스레드들이 시작되었습니다.")
+    background_started = True
+    print("✅ 백그라운드 업데이트 스레드들이 성공적으로 시작되었습니다.")
+
+# --- API Routes ---
+
+@app.route('/')
+def health_check():
+    return jsonify({"status": "ok", "message": "API is running."})
+
+@app.route('/api/gold-premium')
+def get_gold_premium():
+    """DB에서 최신 금 시세 데이터를 조회합니다."""
+    try:
+        if not supabase:
+            return jsonify({"error": "Database connection not available"}), 500
+        
+        response = supabase.table('gold_prices').select('*').order('created_at', desc=True).limit(1).execute()
+        
+        if not response.data:
+            return jsonify({"error": "금 시세 데이터가 없습니다. 잠시 후 다시 시도해주세요."}), 404
+        
+        data = response.data[0]
+        
+        return jsonify({
+            "international_price_usd_oz": data['international_price_usd_oz'],
+            "domestic_price_krw_g": data['domestic_price_krw_g'],
+            "usd_krw_rate": data['usd_krw_rate'],
+            "converted_intl_price_krw_g": (data['international_price_usd_oz'] / 31.1035) * data['usd_krw_rate'],
+            "premium_percentage": data['premium_percentage'],
+            "last_updated": data['created_at']
+        })
+        
+    except Exception as e:
+        return jsonify({"error": f"데이터 조회 중 오류 발생: {e}"}), 500
+
+@app.route('/api/investment-strategy')
+def get_investment_strategy():
+    """DB에서 최신 투자 전략 데이터를 조회합니다."""
+    try:
+        if not supabase:
+            return jsonify({"error": "Database connection not available"}), 500
+        
+        response = supabase.table('investment_strategies').select('*').order('created_at', desc=True).limit(1).execute()
+        
+        if not response.data:
+            return jsonify({"error": "투자 전략 데이터가 없습니다. 잠시 후 다시 시도해주세요."}), 404
+        
+        data = response.data[0]
+        
+        return jsonify({
+            "market_condition": data['market_condition'],
+            "recommended_strategy": data['recommended_strategy'],
+            "supporting_data": {
+                "average_change_rate": data['average_change_rate'],
+                "total_volume": data['total_volume'],
+                "analyzed_symbols": data['analyzed_symbols']
+            },
+            "detailed_analysis": data['detailed_analysis'],
+            "analysis_time": data['created_at'],
+            "message": "실제 KIS API 데이터를 기반으로 한 분석입니다 (10분마다 업데이트)"
+        })
+        
+    except Exception as e:
+        return jsonify({"error": f"데이터 조회 중 오류 발생: {e}"}), 500
+
+# Flask 앱 시작 시 백그라운드 작업 시작
+@app.before_request
+def initialize_background():
+    global background_started
+    if not background_started:
+        start_background_tasks()
 
 if __name__ == '__main__':
-    start_background_tasks()  # 백그라운드 스레드 시작
-    app.run(debug=True, port=int(os.getenv("PORT", 5000)))  # port를 int로 변환
+    start_background_tasks()
+    app.run(debug=True, port=int(os.getenv("PORT", 5000)))
