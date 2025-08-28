@@ -252,6 +252,8 @@ def update_investment_strategy():
                     response.raise_for_status()
                     price_data = response.json()
                     
+                    print(f"[DEBUG] 종목 {symbol} API 응답: rt_cd={price_data.get('rt_cd')}, msg1={price_data.get('msg1', 'N/A')}")
+                    
                     if price_data.get('rt_cd') == '0':
                         output = price_data.get('output', {})
                         if output:
@@ -261,16 +263,25 @@ def update_investment_strategy():
                             
                             strategy_results.append({
                                 "symbol": symbol,
+                                "name": f"종목-{symbol}",  # 종목명 추가
                                 "current_price": current_price,
                                 "volume": volume,
                                 "change_rate": change_rate,
                                 "price_trend": "상승" if change_rate > 0 else "하락" if change_rate < 0 else "보합"
                             })
                             print(f"종목 {symbol} 수집 완료: 가격 {current_price}, 변동률 {change_rate}%")
+                        else:
+                            print(f"[WARNING] 종목 {symbol} output 데이터가 비어있음")
+                    else:
+                        print(f"[ERROR] 종목 {symbol} API 오류 - rt_cd: {price_data.get('rt_cd')}, msg1: {price_data.get('msg1')}")
                             
                 except Exception as e:
                     print(f"종목 {symbol} 업데이트 오류: {e}")
                     continue
+
+            print(f"[DEBUG] 수집된 전략 결과: {len(strategy_results)}개")
+            for result in strategy_results:
+                print(f"  - {result}")
 
             # 전략 분석 및 DB 저장
             if strategy_results:
@@ -294,20 +305,26 @@ def update_investment_strategy():
                     recommended_strategy = "관망"
 
                 if supabase:
-                    supabase.table('investment_strategies').insert({
+                    insert_data = {
                         'market_condition': market_condition,
                         'recommended_strategy': recommended_strategy,
                         'average_change_rate': avg_change_rate,
                         'total_volume': total_volume,
                         'analyzed_symbols': len(strategy_results),
                         'detailed_analysis': strategy_results
-                    }).execute()
+                    }
+                    print(f"[DEBUG] DB에 저장할 데이터: {insert_data}")
+                    
+                    result = supabase.table('investment_strategies').insert(insert_data).execute()
+                    print(f"[DEBUG] DB 저장 결과: {result}")
                     print(f"[{datetime.datetime.now()}] 투자 전략 업데이트 완료 - {market_condition}: {recommended_strategy}")
             else:
-                print(f"[{datetime.datetime.now()}] 투자 전략 데이터 수집 실패")
+                print(f"[{datetime.datetime.now()}] 투자 전략 데이터 수집 실패 - 수집된 데이터가 없습니다")
 
         except Exception as e:
             print(f"[{datetime.datetime.now()}] 투자 전략 업데이트 오류: {e}")
+            import traceback
+            traceback.print_exc()
 
         print(f"[{datetime.datetime.now()}] 투자 전략 10분 후 다음 업데이트 예정...")
         time.sleep(600)
