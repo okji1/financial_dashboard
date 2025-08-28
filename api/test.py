@@ -4,8 +4,27 @@ from flask_cors import CORS
 app = Flask(__name__)
 CORS(app)
 
-def handler(request):
-    return jsonify({
+def handler(request, context):
+    """Vercel 서버리스 함수"""
+    
+    # CORS 헤더 설정
+    headers = {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type'
+    }
+    
+    # OPTIONS 요청 처리 (CORS preflight)
+    if request.method == 'OPTIONS':
+        return {
+            'statusCode': 200,
+            'headers': headers,
+            'body': ''
+        }
+    
+    # 테스트 데이터 반환
+    data = {
         "market_condition": "테스트 상승 전망",
         "recommended_strategy": "테스트 콜(Call) 옵션 매수",
         "supporting_data": {
@@ -45,5 +64,13 @@ def handler(request):
             "open_interest": "총 거래량: 1,000,000주"
         },
         "analysis_time": "2025-01-28T12:00:00Z",
-        "message": "테스트 데이터입니다 (Vercel)"
-    })
+        "message": "테스트 데이터입니다 (Vercel Serverless)"
+    }
+    
+    import json
+    
+    return {
+        'statusCode': 200,
+        'headers': headers,
+        'body': json.dumps(data, ensure_ascii=False)
+    }
