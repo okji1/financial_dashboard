@@ -411,3 +411,162 @@ def get_investment_strategy():
             raw_data_summary = {
                 "price_trend": f"{len(detailed_analysis)}개 종목 실시간 분석",
                 "speculation_position": f"평균 변동률: {data.get('average_change_rate', 0):.2f}%",
+                "open_interest": f"총 거래량: {data.get('total_volume', 0):,}주"
+            }
+        else:
+            raw_data_summary = {
+                "price_trend": "데이터 수집 중",
+                "speculation_position": "분석 대기 중",
+                "open_interest": "업데이트 예정"
+            }
+        
+        return jsonify({
+            "market_condition": data.get('market_condition', '데이터 없음'),
+            "recommended_strategy": data.get('recommended_strategy', '데이터 없음'),
+            "supporting_data": {
+                "average_change_rate": data.get('average_change_rate', 0),
+                "total_volume": data.get('total_volume', 0),
+                "analyzed_symbols": data.get('analyzed_symbols', 0)
+            },
+            "detailed_analysis": detailed_analysis,
+            "raw_data_summary": raw_data_summary,
+            "analysis_time": data.get('created_at', '시간 정보 없음'),
+            "message": "실제 KIS API 데이터를 기반으로 한 분석입니다 (10분마다 업데이트)"
+        })
+        
+    except Exception as e:
+        print(f"[ERROR] 투자 전략 API 오류: {e}")
+        return jsonify({"error": f"데이터 조회 중 오류 발생: {e}"}), 500
+
+# 디버깅을 위한 API 엔드포인트들 추가
+@app.route('/api/debug/investment-strategy')
+def debug_investment_strategy():
+    """투자 전략 데이터 디버깅용 엔드포인트"""
+    try:
+        if not supabase:
+            return jsonify({"error": "Database connection not available"}), 500
+        
+        # 최근 5개 데이터 조회
+        response = supabase.table('investment_strategies').select('*').order('created_at', desc=True).limit(5).execute()
+        
+        debug_info = {
+            "total_records": len(response.data) if response.data else 0,
+            "latest_data": response.data[0] if response.data else None,
+            "all_data": response.data,
+            "message": "투자 전략 디버깅 데이터"
+        }
+        
+        if response.data:
+            latest = response.data[0]
+            debug_info["detailed_analysis_info"] = {
+                "exists": 'detailed_analysis' in latest,
+                "type": str(type(latest.get('detailed_analysis'))),
+                "length": len(latest.get('detailed_analysis', [])) if latest.get('detailed_analysis') else 0,
+                "content": latest.get('detailed_analysis', [])
+            }
+        
+        return jsonify(debug_info)
+        
+    except Exception as e:
+        return jsonify({"error": f"디버깅 중 오류 발생: {e}"}), 500
+
+@app.route('/api/debug/db-status')
+def debug_db_status():
+    """DB 연결 상태 및 테이블 상태 확인"""
+    try:
+        if not supabase:
+            return jsonify({"error": "Supabase client not initialized"}), 500
+        
+        # 각 테이블의 최신 데이터 개수 확인
+        gold_response = supabase.table('gold_prices').select('*', count='exact').execute()
+        strategy_response = supabase.table('investment_strategies').select('*', count='exact').execute()
+        token_response = supabase.table('kis_token').select('*', count='exact').execute()
+        
+        # 최신 데이터 확인
+        latest_gold = supabase.table('gold_prices').select('created_at').order('created_at', desc=True).limit(1).execute()
+        latest_strategy = supabase.table('investment_strategies').select('created_at').order('created_at', desc=True).limit(1).execute()
+        
+        return jsonify({
+            "db_connection": "OK",
+            "table_counts": {
+                "gold_prices": gold_response.count if hasattr(gold_response, 'count') else len(gold_response.data),
+                "investment_strategies": strategy_response.count if hasattr(strategy_response, 'count') else len(strategy_response.data),
+                "kis_token": token_response.count if hasattr(token_response, 'count') else len(token_response.data)
+            },
+            "latest_updates": {
+                "gold_prices": latest_gold.data[0]['created_at'] if latest_gold.data else None,
+                "investment_strategies": latest_strategy.data[0]['created_at'] if latest_strategy.data else None
+            },
+            "background_started": background_started,
+            "sample_strategy_data": strategy_response.data[:2] if strategy_response.data else []
+        })
+        
+    except Exception as e:
+        return jsonify({"error": f"DB 상태 확인 중 오류: {e}"}), 500
+
+@app.route('/api/test/investment-strategy')
+def test_investment_strategy():
+    """프론트엔드 테스트용 고정 데이터"""
+    return jsonify({
+        "market_condition": "테스트 상승 전망",
+        "recommended_strategy": "테스트 콜(Call) 옵션 매수",
+        "supporting_data": {
+            "average_change_rate": 1.5,
+            "total_volume": 1000000,
+            "analyzed_symbols": 3
+        },
+        "detailed_analysis": [
+            {
+                "symbol": "132030",
+                "name": "KODEX 골드선물(H)",
+                "current_price": 10500,
+                "volume": 500000,
+                "change_rate": 2.1,
+                "price_trend": "상승"
+            },
+            {
+                "symbol": "411060", 
+                "name": "ACE KRX금현물",
+                "current_price": 8900,
+                "volume": 300000,
+                "change_rate": 1.2,
+                "price_trend": "상승"
+            },
+            {
+                "symbol": "069500",
+                "name": "KODEX 200",
+                "current_price": 29800,
+                "volume": 200000,
+                "change_rate": 0.8,
+                "price_trend": "상승"
+            }
+        ],
+        "raw_data_summary": {
+            "price_trend": "3개 종목 실시간 분석",
+            "speculation_position": "평균 변동률: 1.37%",
+            "open_interest": "총 거래량: 1,000,000주"
+        },
+        "analysis_time": "2025-01-28T12:00:00Z",
+        "message": "테스트 데이터입니다"
+    })
+
+# 수동 데이터 정리를 위한 API 엔드포인트
+@app.route('/api/cleanup')
+def manual_cleanup():
+    """수동으로 오래된 데이터를 정리합니다."""
+    try:
+        cleanup_old_data()
+        return jsonify({"message": "데이터 정리가 완료되었습니다."})
+    except Exception as e:
+        return jsonify({"error": f"데이터 정리 중 오류 발생: {e}"}), 500
+
+# Flask 앱 시작 시 백그라운드 작업 시작
+@app.before_request
+def initialize_background():
+    global background_started
+    if not background_started:
+        start_background_tasks()
+
+if __name__ == '__main__':
+    start_background_tasks()
+    app.run(debug=True, port=int(os.getenv("PORT", 5000)))
