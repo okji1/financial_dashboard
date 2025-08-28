@@ -98,29 +98,12 @@ def get_gold_premium():
     """국제/국내 금 시세 및 환율을 가져와 프리미엄을 계산합니다."""
     results = {}
     try:
-        # 1. 국제 금 시세 (네이버 금융 크롤링)
-        intl_url = "https://m.stock.naver.com/marketindex/metals/GCcv1"
-        response = requests.get(intl_url, headers={'User-Agent': 'Mozilla/5.0'})
+        # 1. 국제 금 시세 (네이버 증권 API)
+        intl_url = "https://m.stock.naver.com/front-api/marketIndex/prices?category=metals&reutersCode=GCcv1&page=1"
+        response = requests.get(intl_url)
         response.raise_for_status()
-        soup = BeautifulSoup(response.text, 'html.parser')
-
-        # New robust scraping logic 2.0
-        unit_element = soup.find(string=lambda text: "USD/OZS" in text if text else False)
-        if not unit_element:
-            return jsonify({"error": "국제 금 시세 크롤링 실패: 가격 단위를 포함한 HTML 요소를 찾을 수 없습니다."}), 500
-
-        parent_container = unit_element.find_parent()
-        price_text = None
-        for text_node in parent_container.find_all(string=True, recursive=True):
-            cleaned_text = text_node.strip().replace(',', '')
-            if cleaned_text.replace('.', '', 1).isdigit():
-                price_text = cleaned_text
-                break
-        
-        if not price_text:
-            return jsonify({"error": "국제 금 시세 크롤링 실패: 가격 컨테이너에서 숫자 가격을 찾을 수 없습니다."}), 500
-
-        results['international_price_usd_oz'] = float(price_text)
+        intl_data = response.json()['result'][0]
+        results['international_price_usd_oz'] = float(intl_data['closePrice'].replace(',', ''))
 
         # 2. 국내 금 시세 (네이버 증권 API)
         domestic_url = "https://m.stock.naver.com/front-api/marketIndex/prices?category=metals&reutersCode=M04020000&page=1"
