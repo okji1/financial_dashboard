@@ -157,26 +157,124 @@ def get_investment_strategy():
     if not access_token:
         return jsonify({"error": "Failed to get KIS token", "details": message}), 500
 
-    # --- 분석 로직 (기술서 기반) ---
-    # 현재는 가상 데이터 반환
-    strategy_data = {
-        "market_condition": "강력한 상승 전망",
-        "recommended_strategy": "콜(Call) 옵션 매수",
-        "supporting_data": {
-            "price_trend": "상승 (거래량 동반)",
-            "speculative_position": "순매수 증가",
-            "open_interest": "증가"
-        },
-        "raw_data_summary": {
-            "last_price": 1850.5,
-            "volume": 150000,
-            "speculative_net_long": 50000,
-            "total_open_interest": 300000
-        },
-        "message": "이것은 가상 데이터입니다. KIS API 연동이 필요합니다."
-    }
+    try:
+        # KIS API 헤더 설정
+        headers = {
+            "Content-Type": "application/json",
+            "authorization": f"Bearer {access_token}",
+            "appkey": KIS_APP_KEY,
+            "appsecret": KIS_APP_SECRET,
+            "tr_id": "FHKST01010100"  # 주식현재가 시세
+        }
 
-    return jsonify(strategy_data)
+        # 금 선물 종목 코드 (예시: 금 ETF 또는 금 관련 종목)
+        # 실제로는 금 선물 코드를 사용해야 함 (예: KRX 금선물)
+        gold_symbols = [
+            "132030",  # KODEX 골드선물(H) ETF
+            "411060",  # ACE KRX금현물
+            "069500"   # KODEX 200
+        ]
+
+        strategy_results = []
+        
+        for symbol in gold_symbols:
+            # 현재가 조회
+            price_url = f"{KIS_BASE_URL}/uapi/domestic-stock/v1/quotations/inquire-price"
+            params = {
+                "FID_COND_MRKT_DIV_CODE": "J",
+                "FID_INPUT_ISCD": symbol
+            }
+            
+            try:
+                response = requests.get(price_url, headers=headers, params=params)
+                response.raise_for_status()
+                price_data = response.json()
+                
+                if price_data.get('rt_cd') == '0':  # 성공
+                    output = price_data.get('output', {})
+                    current_price = float(output.get('stck_prpr', 0))  # 현재가
+                    volume = int(output.get('acml_vol', 0))  # 누적거래량
+                    change_rate = float(output.get('prdy_ctrt', 0))  # 전일대비율
+                    
+                    strategy_results.append({
+                        "symbol": symbol,
+                        "current_price": current_price,
+                        "volume": volume,
+                        "change_rate": change_rate,
+                        "price_trend": "상승" if change_rate > 0 else "하락" if change_rate < 0 else "보합"
+                    })
+                    
+            except Exception as e:
+                print(f"종목 {symbol} 데이터 조회 실패: {e}")
+                continue
+
+        # 투자 전략 분석 로직
+        if strategy_results:
+            avg_change_rate = sum(item['change_rate'] for item in strategy_results) / len(strategy_results)
+            total_volume = sum(item['volume'] for item in strategy_results)
+            
+            # 전략 결정 로직
+            if avg_change_rate > 1:
+                market_condition = "강력한 상승 전망"
+                recommended_strategy = "콜(Call) 옵션 매수"
+            elif avg_change_rate > 0:
+                market_condition = "약한 상승 전망"
+                recommended_strategy = "콜(Call) 옵션 매수 (소량)"
+            elif avg_change_rate < -1:
+                market_condition = "강력한 하락 전망"
+                recommended_strategy = "풋(Put) 옵션 매수"
+            elif avg_change_rate < 0:
+                market_condition = "약한 하락 전망"
+                recommended_strategy = "풋(Put) 옵션 매수 (소량)"
+            else:
+                market_condition = "횡보 전망"
+                recommended_strategy = "관망"
+
+            strategy_data = {
+                "market_condition": market_condition,
+                "recommended_strategy": recommended_strategy,
+                "supporting_data": {
+                    "average_change_rate": round(avg_change_rate, 2),
+                    "total_volume": total_volume,
+                    "analyzed_symbols": len(strategy_results)
+                },
+                "detailed_analysis": strategy_results,
+                "analysis_time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "message": "실제 KIS API 데이터를 기반으로 한 분석입니다."
+            }
+        else:
+            # API 데이터를 가져오지 못한 경우 기본 전략 반환
+            strategy_data = {
+                "market_condition": "데이터 부족",
+                "recommended_strategy": "추가 분석 필요",
+                "supporting_data": {
+                    "error": "금 관련 종목 데이터를 가져올 수 없습니다."
+                },
+                "raw_data_summary": {},
+                "message": "KIS API 연동 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요."
+            }
+
+        return jsonify(strategy_data)
+
+    except requests.exceptions.RequestException as e:
+        return jsonify({
+            "error": "KIS API 요청 실패", 
+            "details": str(e),
+            "fallback_strategy": {
+                "market_condition": "분석 불가",
+                "recommended_strategy": "수동 분석 권장",
+                "message": "API 연결 문제로 인해 실시간 분석이 불가능합니다."
+            }
+        }), 500
+    except Exception as e:
+        return jsonify({
+            "error": f"투자 전략 분석 중 오류 발생: {e}",
+            "fallback_strategy": {
+                "market_condition": "분석 불가",
+                "recommended_strategy": "전문가 상담 권장",
+                "message": "시스템 오류로 인해 분석이 불가능합니다."
+            }
+        }), 500
 
 
 if __name__ == '__main__':
