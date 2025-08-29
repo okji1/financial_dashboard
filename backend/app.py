@@ -83,8 +83,99 @@ def get_kis_token():
         print(f"KIS 토큰 발급 API 요청 실패: {e}")
         return None, str(e)
 
+def get_real_time_gold_prices():
+    """실시간으로 금 시세 데이터를 조회합니다."""
+    try:
+        # 국제 금시세 (차트 API 사용)
+        print("국제 금시세 API 호출 중...")
+        intl_url = "https://m.stock.naver.com/front-api/chart/pricesByPeriod?reutersCode=GCcv1&category=metals&chartInfoType=futures&scriptChartType=day"
+        response = requests.get(intl_url, timeout=10)
+        response.raise_for_status()
+        intl_data = response.json()
+        
+        international_price = None
+        if intl_data.get('priceInfos') and len(intl_data['priceInfos']) > 0:
+            latest_intl = intl_data['priceInfos'][-1]  # 마지막(최신) 데이터
+            international_price = float(latest_intl['currentPrice'])
+            print(f"국제 금시세: ${international_price}/oz")
+
+        # 국내 금시세 (차트 API 사용)
+        print("국내 금시세 API 호출 중...")
+        domestic_url = "https://m.stock.naver.com/front-api/chart/pricesByPeriod?reutersCode=M04020000&category=metals&chartInfoType=gold&scriptChartType=day"
+        response = requests.get(domestic_url, timeout=10)
+        response.raise_for_status()
+        domestic_data = response.json()
+        
+        domestic_price = None
+        if domestic_data.get('priceInfos') and len(domestic_data['priceInfos']) > 0:
+            latest_domestic = domestic_data['priceInfos'][-1]  # 마지막(최신) 데이터
+            domestic_price = float(latest_domestic['currentPrice'])
+            print(f"국내 금시세: ₩{domestic_price}/g")
+
+        # 환율 정보
+        print("환율 정보 조회 중...")
+        today = datetime.date.today()
+        usd_krw_rate = None
+        
+        for i in range(3):  # 최대 3일간 시도
+            search_date = today - timedelta(days=i)
+            exchange_url = f"https://oapi.koreaexim.go.kr/site/program/financial/exchangeJSON?authkey={EXCHANGE_RATE_API_KEY}&searchdate={search_date.strftime('%Y%m%d')}&data=AP01"
+            
+            try:
+                response = requests.get(exchange_url, timeout=10)
+                response.raise_for_status()
+                exchange_data = response.json()
+                
+                if exchange_data and isinstance(exchange_data, list):
+                    for item in exchange_data:
+                        if item['cur_unit'] == 'USD':
+                            usd_krw_rate = float(item['deal_bas_r'].replace(',', ''))
+                            print(f"환율: {usd_krw_rate} KRW/USD ({search_date})")
+                            break
+                if usd_krw_rate:
+                    break
+            except Exception as ex:
+                print(f"환율 API 호출 실패 ({search_date}): {ex}")
+                continue
+        
+        # 모든 데이터가 있으면 프리미엄 계산
+        if international_price and domestic_price and usd_krw_rate:
+            oz_to_g = 31.1035
+            intl_price_usd_g = international_price / oz_to_g
+            intl_price_krw_g = intl_price_usd_g * usd_krw_rate
+            premium = ((domestic_price - intl_price_krw_g) / intl_price_krw_g) * 100
+            
+            print(f"프리미엄 계산: {premium:.2f}%")
+            
+            return {
+                "international_price_usd_oz": international_price,
+                "domestic_price_krw_g": domestic_price,
+                "usd_krw_rate": usd_krw_rate,
+                "converted_intl_price_krw_g": intl_price_krw_g,
+                "premium_percentage": premium,
+                "last_updated": datetime.datetime.now(timezone.utc).isoformat(),
+                "success": True
+            }
+        else:
+            missing = []
+            if not international_price: missing.append("국제 금시세")
+            if not domestic_price: missing.append("국내 금시세")
+            if not usd_krw_rate: missing.append("환율")
+            
+            return {
+                "success": False,
+                "error": f"데이터 조회 실패: {', '.join(missing)}"
+            }
+            
+    except Exception as e:
+        print(f"실시간 금시세 조회 오류: {e}")
+        return {
+            "success": False,
+            "error": f"API 호출 중 오류 발생: {e}"
+        }
+
 def clean_old_data(table_name, max_records=10):
-    """DB에서 오래된 데이터를 삭제하여 최대 개수 유지"""
+    """DB에서 오래된 데이터를 삭제하여 최대 개수 유지 (투자전략용)"""
     if not supabase:
         return False
     
@@ -116,116 +207,6 @@ def clean_old_data(table_name, max_records=10):
         
     except Exception as e:
         print(f"{table_name} 테이블 데이터 정리 오류: {e}")
-        return False
-
-def update_data_if_needed():
-    """필요시 데이터를 업데이트합니다 (Vercel용 - 요청 시마다 실행)"""
-    if not supabase:
-        return False
-    
-    try:
-        # 최신 금 시세 데이터 확인
-        gold_response = supabase.table('gold_prices').select('created_at').order('created_at', desc=True).limit(1).execute()
-        
-        # 10분 이상 된 데이터면 업데이트
-        if not gold_response.data:
-            should_update = True
-            print("DB에 금 시세 데이터가 없음 - 업데이트 필요")
-        else:
-            last_update = datetime.datetime.fromisoformat(gold_response.data[0]['created_at'])
-            time_diff = (datetime.datetime.now(timezone.utc) - last_update).total_seconds()
-            should_update = time_diff > 600  # 10분
-            print(f"마지막 금시세 업데이트: {time_diff:.0f}초 전, 업데이트 필요: {should_update}")
-        
-        if should_update:
-            print("금시세 데이터 업데이트 시작...")
-            
-            # 금 시세 업데이트 - 새로운 API 사용
-            try:
-                # 국제 금시세 (차트 API 사용)
-                intl_url = "https://m.stock.naver.com/front-api/chart/pricesByPeriod?reutersCode=GCcv1&category=metals&chartInfoType=futures&scriptChartType=day"
-                response = requests.get(intl_url, timeout=5)
-                response.raise_for_status()
-                intl_data = response.json()
-                
-                # priceInfos 배열에서 가장 최신 데이터 가져오기
-                if intl_data.get('priceInfos') and len(intl_data['priceInfos']) > 0:
-                    latest_intl = intl_data['priceInfos'][-1]  # 마지막(최신) 데이터
-                    international_price = float(latest_intl['currentPrice'])
-                    print(f"국제 금시세 업데이트: ${international_price}/oz")
-                else:
-                    print("국제 금시세 데이터 없음")
-                    return False
-
-                # 국내 금시세 (차트 API 사용)
-                domestic_url = "https://m.stock.naver.com/front-api/chart/pricesByPeriod?reutersCode=M04020000&category=metals&chartInfoType=gold&scriptChartType=day"
-                response = requests.get(domestic_url, timeout=5)
-                response.raise_for_status()
-                domestic_data = response.json()
-                
-                # priceInfos 배열에서 가장 최신 데이터 가져오기
-                if domestic_data.get('priceInfos') and len(domestic_data['priceInfos']) > 0:
-                    latest_domestic = domestic_data['priceInfos'][-1]  # 마지막(최신) 데이터
-                    domestic_price = float(latest_domestic['currentPrice'])
-                    print(f"국내 금시세 업데이트: ₩{domestic_price}/g")
-                else:
-                    print("국내 금시세 데이터 없음")
-                    return False
-
-                # 환율 정보 (기존과 동일)
-                today = datetime.date.today()
-                usd_krw_rate = None
-                for i in range(3):  # 최대 3일만 확인 (Vercel 시간 제한)
-                    search_date = today - timedelta(days=i)
-                    exchange_url = f"https://oapi.koreaexim.go.kr/site/program/financial/exchangeJSON?authkey={EXCHANGE_RATE_API_KEY}&searchdate={search_date.strftime('%Y%m%d')}&data=AP01"
-                    response = requests.get(exchange_url, timeout=5)
-                    response.raise_for_status()
-                    exchange_data = response.json()
-                    if exchange_data and isinstance(exchange_data, list):
-                        for item in exchange_data:
-                            if item['cur_unit'] == 'USD':
-                                usd_krw_rate = float(item['deal_bas_r'].replace(',', ''))
-                                print(f"환율 업데이트: {usd_krw_rate} KRW/USD")
-                                break
-                    if usd_krw_rate:
-                        break
-                
-                if usd_krw_rate:
-                    # 프리미엄 계산 및 저장
-                    oz_to_g = 31.1035
-                    intl_price_usd_g = international_price / oz_to_g
-                    intl_price_krw_g = intl_price_usd_g * usd_krw_rate
-                    premium = ((domestic_price - intl_price_krw_g) / intl_price_krw_g) * 100
-
-                    print(f"프리미엄 계산: {premium:.2f}%")
-
-                    # 새 데이터 저장
-                    supabase.table('gold_prices').insert({
-                        'international_price_usd_oz': international_price,
-                        'domestic_price_krw_g': domestic_price,
-                        'usd_krw_rate': usd_krw_rate,
-                        'premium_percentage': premium
-                    }).execute()
-                    
-                    print("금 시세 데이터 저장 완료")
-                    
-                    # 오래된 데이터 정리 (최대 10개 유지)
-                    clean_old_data('gold_prices', 10)
-                    
-                    return True
-                else:
-                    print("환율 정보 조회 실패")
-                    
-            except Exception as e:
-                print(f"금 시세 업데이트 오류: {e}")
-                import traceback
-                traceback.print_exc()
-        else:
-            print("금시세 업데이트 불필요 - 최신 데이터 사용")
-                
-        return False
-    except Exception as e:
-        print(f"금시세 데이터 업데이트 확인 오류: {e}")
         return False
 
 def update_investment_strategy_if_needed():
@@ -355,36 +336,30 @@ def update_investment_strategy_if_needed():
 @app.route('/')
 @app.route('/api')
 def health_check():
-    return jsonify({"status": "ok", "message": "API is running on Vercel."})
+    return jsonify({"status": "ok", "message": "Financial Dashboard API is running."})
 
 @app.route('/api/gold-premium')
 def get_gold_premium():
-    """DB에서 최신 금 시세 데이터를 조회합니다."""
+    """실시간으로 금 시세 데이터를 조회합니다."""
     try:
-        # 필요시 데이터 업데이트
-        update_data_if_needed()
+        print("실시간 금시세 조회 시작...")
+        gold_data = get_real_time_gold_prices()
         
-        if not supabase:
-            return jsonify({"error": "Database connection not available"}), 500
-        
-        response = supabase.table('gold_prices').select('*').order('created_at', desc=True).limit(1).execute()
-        
-        if not response.data:
-            return jsonify({"error": "금 시세 데이터가 없습니다. 잠시 후 다시 시도해주세요."}), 404
-        
-        data = response.data[0]
-        
-        return jsonify({
-            "international_price_usd_oz": data['international_price_usd_oz'],
-            "domestic_price_krw_g": data['domestic_price_krw_g'],
-            "usd_krw_rate": data['usd_krw_rate'],
-            "converted_intl_price_krw_g": (data['international_price_usd_oz'] / 31.1035) * data['usd_krw_rate'],
-            "premium_percentage": data['premium_percentage'],
-            "last_updated": data['created_at']
-        })
+        if gold_data["success"]:
+            return jsonify({
+                "international_price_usd_oz": gold_data["international_price_usd_oz"],
+                "domestic_price_krw_g": gold_data["domestic_price_krw_g"],
+                "usd_krw_rate": gold_data["usd_krw_rate"],
+                "converted_intl_price_krw_g": gold_data["converted_intl_price_krw_g"],
+                "premium_percentage": gold_data["premium_percentage"],
+                "last_updated": gold_data["last_updated"],
+                "message": "실시간 데이터 조회 완료"
+            })
+        else:
+            return jsonify({"error": gold_data["error"]}), 500
         
     except Exception as e:
-        return jsonify({"error": f"데이터 조회 중 오류 발생: {e}"}), 500
+        return jsonify({"error": f"실시간 금시세 조회 중 오류 발생: {e}"}), 500
 
 @app.route('/api/investment-strategy')
 def get_investment_strategy():
@@ -407,42 +382,3 @@ def get_investment_strategy():
         raw_data_summary = {
             "price_trend": f"{len(detailed_analysis)}개 종목 실시간 분석" if detailed_analysis else "데이터 수집 중",
             "speculation_position": f"평균 변동률: {data.get('average_change_rate', 0):.2f}%",
-            "open_interest": f"총 거래량: {data.get('total_volume', 0):,}주"
-        }
-        
-        return jsonify({
-            "market_condition": data.get('market_condition', '데이터 없음'),
-            "recommended_strategy": data.get('recommended_strategy', '데이터 없음'),
-            "supporting_data": {
-                "average_change_rate": data.get('average_change_rate', 0),
-                "total_volume": data.get('total_volume', 0),
-                "analyzed_symbols": data.get('analyzed_symbols', 0)
-            },
-            "detailed_analysis": detailed_analysis,
-            "raw_data_summary": raw_data_summary,
-            "analysis_time": data.get('created_at', '시간 정보 없음'),
-            "message": "Vercel 서버리스 환경에서 실행 중 (10분마다 업데이트)"
-        })
-        
-    except Exception as e:
-        return jsonify({"error": f"데이터 조회 중 오류 발생: {e}"}), 500
-
-def background_updater():
-    """백그라운드에서 10분마다 자동 업데이트"""
-    while True:
-        try:
-            print("정기 업데이트 시작...")
-            update_data_if_needed()
-            update_investment_strategy_if_needed()
-            print("정기 업데이트 완료")
-        except Exception as e:
-            print(f"정기 업데이트 오류: {e}")
-        
-        time.sleep(600)  # 10분 대기
-
-if __name__ == '__main__':
-    # 백그라운드 스레드 시작
-    update_thread = threading.Thread(target=background_updater, daemon=True)
-    update_thread.start()
-    
-    app.run()
