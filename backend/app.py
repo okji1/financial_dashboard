@@ -382,3 +382,41 @@ def get_investment_strategy():
         raw_data_summary = {
             "price_trend": f"{len(detailed_analysis)}개 종목 실시간 분석" if detailed_analysis else "데이터 수집 중",
             "speculation_position": f"평균 변동률: {data.get('average_change_rate', 0):.2f}%",
+            "open_interest": f"총 거래량: {data.get('total_volume', 0):,}주"
+        }
+        
+        return jsonify({
+            "market_condition": data.get('market_condition', '데이터 없음'),
+            "recommended_strategy": data.get('recommended_strategy', '데이터 없음'),
+            "supporting_data": {
+                "average_change_rate": data.get('average_change_rate', 0),
+                "total_volume": data.get('total_volume', 0),
+                "analyzed_symbols": data.get('analyzed_symbols', 0)
+            },
+            "detailed_analysis": detailed_analysis,
+            "raw_data_summary": raw_data_summary,
+            "analysis_time": data.get('created_at', '시간 정보 없음'),
+            "message": "투자 전략 분석 완료 (10분마다 업데이트)"
+        })
+        
+    except Exception as e:
+        return jsonify({"error": f"데이터 조회 중 오류 발생: {e}"}), 500
+
+def background_updater():
+    """백그라운드에서 10분마다 투자 전략만 자동 업데이트"""
+    while True:
+        try:
+            print("정기 투자전략 업데이트 시작...")
+            update_investment_strategy_if_needed()
+            print("정기 투자전략 업데이트 완료")
+        except Exception as e:
+            print(f"정기 업데이트 오류: {e}")
+        
+        time.sleep(600)  # 10분 대기
+
+if __name__ == '__main__':
+    # 백그라운드 스레드 시작 (투자전략만)
+    update_thread = threading.Thread(target=background_updater, daemon=True)
+    update_thread.start()
+    
+    app.run()
