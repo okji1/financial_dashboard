@@ -100,21 +100,39 @@ def update_data_if_needed():
         if should_update:
             print("데이터 업데이트 필요 - 업데이트 시작")
             
-            # 금 시세 업데이트
+            # 금 시세 업데이트 - 새로운 API 사용
             try:
-                intl_url = "https://m.stock.naver.com/front-api/marketIndex/prices?category=metals&reutersCode=GCcv1&page=1"
+                # 국제 금시세 (차트 API 사용)
+                intl_url = "https://m.stock.naver.com/front-api/chart/pricesByPeriod?reutersCode=GCcv1&category=metals&chartInfoType=futures&scriptChartType=day"
                 response = requests.get(intl_url, timeout=5)
                 response.raise_for_status()
-                intl_data = response.json()['result'][0]
-                international_price = float(intl_data['closePrice'].replace(',', ''))
+                intl_data = response.json()
+                
+                # priceInfos 배열에서 가장 최신 데이터 가져오기
+                if intl_data.get('priceInfos') and len(intl_data['priceInfos']) > 0:
+                    latest_intl = intl_data['priceInfos'][-1]  # 마지막(최신) 데이터
+                    international_price = float(latest_intl['currentPrice'])
+                    print(f"국제 금시세 업데이트: ${international_price}/oz")
+                else:
+                    print("국제 금시세 데이터 없음")
+                    return False
 
-                domestic_url = "https://m.stock.naver.com/front-api/marketIndex/prices?category=metals&reutersCode=M04020000&page=1"
+                # 국내 금시세 (차트 API 사용)
+                domestic_url = "https://m.stock.naver.com/front-api/chart/pricesByPeriod?reutersCode=M04020000&category=metals&chartInfoType=gold&scriptChartType=day"
                 response = requests.get(domestic_url, timeout=5)
                 response.raise_for_status()
-                domestic_data = response.json()['result'][0]
-                domestic_price = float(domestic_data['closePrice'].replace(',', ''))
+                domestic_data = response.json()
+                
+                # priceInfos 배열에서 가장 최신 데이터 가져오기
+                if domestic_data.get('priceInfos') and len(domestic_data['priceInfos']) > 0:
+                    latest_domestic = domestic_data['priceInfos'][-1]  # 마지막(최신) 데이터
+                    domestic_price = float(latest_domestic['currentPrice'])
+                    print(f"국내 금시세 업데이트: ₩{domestic_price}/g")
+                else:
+                    print("국내 금시세 데이터 없음")
+                    return False
 
-                # 환율 정보
+                # 환율 정보 (기존과 동일)
                 today = datetime.date.today()
                 usd_krw_rate = None
                 for i in range(3):  # 최대 3일만 확인 (Vercel 시간 제한)
@@ -127,6 +145,7 @@ def update_data_if_needed():
                         for item in exchange_data:
                             if item['cur_unit'] == 'USD':
                                 usd_krw_rate = float(item['deal_bas_r'].replace(',', ''))
+                                print(f"환율 업데이트: {usd_krw_rate} KRW/USD")
                                 break
                     if usd_krw_rate:
                         break
@@ -137,6 +156,8 @@ def update_data_if_needed():
                     intl_price_usd_g = international_price / oz_to_g
                     intl_price_krw_g = intl_price_usd_g * usd_krw_rate
                     premium = ((domestic_price - intl_price_krw_g) / intl_price_krw_g) * 100
+
+                    print(f"프리미엄 계산: {premium:.2f}%")
 
                     supabase.table('gold_prices').insert({
                         'international_price_usd_oz': international_price,
@@ -152,6 +173,8 @@ def update_data_if_needed():
                     
             except Exception as e:
                 print(f"금 시세 업데이트 오류: {e}")
+                import traceback
+                traceback.print_exc()
                 
         return False
     except Exception as e:
