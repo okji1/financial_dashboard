@@ -87,35 +87,78 @@ def get_kis_token():
 
 # 금시세 조회
 def get_gold_prices():
-    # 국제 금시세
+    """수정된 금 시세 조회 함수 - API 응답 구조 변경 대응"""
+    
+    # 국제 금시세 (chart API)
     intl_data = api_call("https://m.stock.naver.com/front-api/chart/pricesByPeriod?reutersCode=GCcv1&category=metals&chartInfoType=futures&scriptChartType=day")
     international_price = None
-    if intl_data and intl_data.get('priceInfos'):
-        international_price = float(intl_data['priceInfos'][-1].get('currentPrice', 0))
-
-    # 국내 금시세
+    
+    if intl_data and intl_data.get('result') and intl_data['result'].get('priceInfos'):
+        # result 안의 priceInfos에서 최신 데이터 가져오기
+        price_infos = intl_data['result']['priceInfos']
+        if price_infos:
+            latest = price_infos[-1]
+            current_price = latest.get('currentPrice')
+            if current_price:
+                # 쉼표 제거 후 float 변환
+                international_price = float(str(current_price).replace(',', ''))
+    
+    # 백업: marketIndex API 사용
+    if not international_price:
+        intl_backup = api_call("https://m.stock.naver.com/front-api/marketIndex/prices?category=metals&reutersCode=GCcv1&page=1")
+        if intl_backup and intl_backup.get('result'):
+            close_price = intl_backup['result'].get('closePrice')
+            if close_price:
+                international_price = float(str(close_price).replace(',', ''))
+    
+    # 국내 금시세 (chart API)
     domestic_data = api_call("https://m.stock.naver.com/front-api/chart/pricesByPeriod?reutersCode=M04020000&category=metals&chartInfoType=gold&scriptChartType=day")
     domestic_price = None
-    if domestic_data and domestic_data.get('priceInfos'):
-        domestic_price = float(domestic_data['priceInfos'][-1].get('currentPrice', 0))
-
-    # 환율
-    today = datetime.date.today().strftime('%Y%m%d')
-    exchange_data = api_call(f"https://oapi.koreaexim.go.kr/site/program/financial/exchangeJSON?authkey={EXCHANGE_RATE_API_KEY}&searchdate={today}&data=AP01")
+    
+    if domestic_data and domestic_data.get('result') and domestic_data['result'].get('priceInfos'):
+        # result 안의 priceInfos에서 최신 데이터 가져오기
+        price_infos = domestic_data['result']['priceInfos']
+        if price_infos:
+            latest = price_infos[-1]
+            current_price = latest.get('currentPrice')
+            if current_price:
+                # 쉼표 제거 후 float 변환
+                domestic_price = float(str(current_price).replace(',', ''))
+    
+    # 백업: marketIndex API 사용
+    if not domestic_price:
+        domestic_backup = api_call("https://m.stock.naver.com/front-api/marketIndex/prices?category=metals&reutersCode=M04020000&page=1")
+        if domestic_backup and domestic_backup.get('result'):
+            close_price = domestic_backup['result'].get('closePrice')
+            if close_price:
+                domestic_price = float(str(close_price).replace(',', ''))
+    
+    # 환율 조회 (여러 날짜 시도)
     usd_krw_rate = None
-    if exchange_data and isinstance(exchange_data, list):
-        for item in exchange_data:
-            if item.get('cur_unit') == 'USD':
-                usd_krw_rate = float(item['deal_bas_r'].replace(',', ''))
+    for i in range(5):
+        date = (datetime.date.today() - timedelta(days=i)).strftime('%Y%m%d')
+        exchange_data = api_call(f"https://oapi.koreaexim.go.kr/site/program/financial/exchangeJSON?authkey={EXCHANGE_RATE_API_KEY}&searchdate={date}&data=AP01")
+        
+        if exchange_data and isinstance(exchange_data, list):
+            for item in exchange_data:
+                if item.get('cur_unit') == 'USD':
+                    usd_krw_rate = float(item['deal_bas_r'].replace(',', ''))
+                    break
+            if usd_krw_rate:
                 break
-
-    # 계산
+    
+    # 결과 검증
     if not all([international_price, domestic_price, usd_krw_rate]):
-        return {"error": "데이터 조회 실패"}
-
+        missing = []
+        if not international_price: missing.append("국제 금시세")
+        if not domestic_price: missing.append("국내 금시세")
+        if not usd_krw_rate: missing.append("환율")
+        return {"error": f"데이터 조회 실패: {', '.join(missing)}"}
+    
+    # 프리미엄 계산
     intl_price_krw_g = (international_price / 31.1035) * usd_krw_rate
     premium = ((domestic_price - intl_price_krw_g) / intl_price_krw_g) * 100
-
+    
     return {
         "international_price_usd_oz": international_price,
         "domestic_price_krw_g": domestic_price,
