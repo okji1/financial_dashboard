@@ -6,6 +6,8 @@ from dotenv import load_dotenv
 from supabase import create_client, Client
 import datetime
 from datetime import timezone, timedelta
+import threading
+import time
 
 # .env 파일에서 환경 변수 로드
 load_dotenv()
@@ -81,6 +83,41 @@ def get_kis_token():
         print(f"KIS 토큰 발급 API 요청 실패: {e}")
         return None, str(e)
 
+def clean_old_data(table_name, max_records=10):
+    """DB에서 오래된 데이터를 삭제하여 최대 개수 유지"""
+    if not supabase:
+        return False
+    
+    try:
+        # 현재 데이터 개수 확인
+        response = supabase.table(table_name).select('id').execute()
+        current_count = len(response.data) if response.data else 0
+        
+        if current_count > max_records:
+            # 삭제할 개수 계산
+            delete_count = current_count - max_records
+            
+            # 가장 오래된 데이터 조회 (created_at 오름차순으로 정렬)
+            old_data = supabase.table(table_name).select('id').order('created_at', desc=False).limit(delete_count).execute()
+            
+            if old_data.data:
+                # 오래된 데이터들의 ID 수집
+                old_ids = [item['id'] for item in old_data.data]
+                
+                # 일괄 삭제
+                for old_id in old_ids:
+                    supabase.table(table_name).delete().eq('id', old_id).execute()
+                
+                print(f"{table_name} 테이블에서 {len(old_ids)}개 오래된 데이터 삭제 완료")
+                return True
+        
+        print(f"{table_name} 테이블 데이터 개수: {current_count}/{max_records} - 삭제 불필요")
+        return True
+        
+    except Exception as e:
+        print(f"{table_name} 테이블 데이터 정리 오류: {e}")
+        return False
+
 def update_data_if_needed():
     """필요시 데이터를 업데이트합니다 (Vercel용 - 요청 시마다 실행)"""
     if not supabase:
@@ -93,12 +130,15 @@ def update_data_if_needed():
         # 10분 이상 된 데이터면 업데이트
         if not gold_response.data:
             should_update = True
+            print("DB에 금 시세 데이터가 없음 - 업데이트 필요")
         else:
             last_update = datetime.datetime.fromisoformat(gold_response.data[0]['created_at'])
-            should_update = (datetime.datetime.now(timezone.utc) - last_update).total_seconds() > 600  # 10분
+            time_diff = (datetime.datetime.now(timezone.utc) - last_update).total_seconds()
+            should_update = time_diff > 600  # 10분
+            print(f"마지막 금시세 업데이트: {time_diff:.0f}초 전, 업데이트 필요: {should_update}")
         
         if should_update:
-            print("데이터 업데이트 필요 - 업데이트 시작")
+            print("금시세 데이터 업데이트 시작...")
             
             # 금 시세 업데이트 - 새로운 API 사용
             try:
@@ -159,6 +199,7 @@ def update_data_if_needed():
 
                     print(f"프리미엄 계산: {premium:.2f}%")
 
+                    # 새 데이터 저장
                     supabase.table('gold_prices').insert({
                         'international_price_usd_oz': international_price,
                         'domestic_price_krw_g': domestic_price,
@@ -166,7 +207,11 @@ def update_data_if_needed():
                         'premium_percentage': premium
                     }).execute()
                     
-                    print("금 시세 데이터 업데이트 완료")
+                    print("금 시세 데이터 저장 완료")
+                    
+                    # 오래된 데이터 정리 (최대 10개 유지)
+                    clean_old_data('gold_prices', 10)
+                    
                     return True
                 else:
                     print("환율 정보 조회 실패")
@@ -175,10 +220,12 @@ def update_data_if_needed():
                 print(f"금 시세 업데이트 오류: {e}")
                 import traceback
                 traceback.print_exc()
+        else:
+            print("금시세 업데이트 불필요 - 최신 데이터 사용")
                 
         return False
     except Exception as e:
-        print(f"데이터 업데이트 확인 오류: {e}")
+        print(f"금시세 데이터 업데이트 확인 오류: {e}")
         return False
 
 def update_investment_strategy_if_needed():
@@ -193,12 +240,15 @@ def update_investment_strategy_if_needed():
         # 10분 이상 된 데이터면 업데이트
         if not strategy_response.data:
             should_update = True
+            print("DB에 투자 전략 데이터가 없음 - 업데이트 필요")
         else:
             last_update = datetime.datetime.fromisoformat(strategy_response.data[0]['created_at'])
-            should_update = (datetime.datetime.now(timezone.utc) - last_update).total_seconds() > 600  # 10분
+            time_diff = (datetime.datetime.now(timezone.utc) - last_update).total_seconds()
+            should_update = time_diff > 600  # 10분
+            print(f"마지막 투자전략 업데이트: {time_diff:.0f}초 전, 업데이트 필요: {should_update}")
         
         if should_update:
-            print("투자 전략 업데이트 필요 - 업데이트 시작")
+            print("투자 전략 업데이트 시작...")
             
             access_token, message = get_kis_token()
             if not access_token:
@@ -244,6 +294,7 @@ def update_investment_strategy_if_needed():
                                 "change_rate": change_rate,
                                 "price_trend": "상승" if change_rate > 0 else "하락" if change_rate < 0 else "보합"
                             })
+                            print(f"종목 {symbol} 업데이트: {current_price}원, {change_rate:+.2f}%")
                             
                 except Exception as e:
                     print(f"종목 {symbol} 업데이트 오류: {e}")
@@ -270,6 +321,9 @@ def update_investment_strategy_if_needed():
                     market_condition = "횡보 전망"
                     recommended_strategy = "관망"
 
+                print(f"투자 전략 분석: {market_condition} (평균 변동률: {avg_change_rate:+.2f}%)")
+
+                # 새 데이터 저장
                 supabase.table('investment_strategies').insert({
                     'market_condition': market_condition,
                     'recommended_strategy': recommended_strategy,
@@ -279,10 +333,17 @@ def update_investment_strategy_if_needed():
                     'detailed_analysis': strategy_results
                 }).execute()
                 
-                print("투자 전략 업데이트 완료")
+                print("투자 전략 데이터 저장 완료")
+                
+                # 오래된 데이터 정리 (최대 10개 유지)
+                clean_old_data('investment_strategies', 10)
+                
                 return True
             else:
                 print("투자 전략 데이터 수집 실패")
+                
+        else:
+            print("투자전략 업데이트 불필요 - 최신 데이터 사용")
                 
         return False
     except Exception as e:
@@ -366,7 +427,22 @@ def get_investment_strategy():
     except Exception as e:
         return jsonify({"error": f"데이터 조회 중 오류 발생: {e}"}), 500
 
-
+def background_updater():
+    """백그라운드에서 10분마다 자동 업데이트"""
+    while True:
+        try:
+            print("정기 업데이트 시작...")
+            update_data_if_needed()
+            update_investment_strategy_if_needed()
+            print("정기 업데이트 완료")
+        except Exception as e:
+            print(f"정기 업데이트 오류: {e}")
+        
+        time.sleep(600)  # 10분 대기
 
 if __name__ == '__main__':
+    # 백그라운드 스레드 시작
+    update_thread = threading.Thread(target=background_updater, daemon=True)
+    update_thread.start()
+    
     app.run()
