@@ -27,18 +27,22 @@ background_update_running = False
 
 
 def get_or_create_kis_token():
-    """KIS 토큰 조회 또는 생성"""
-    # 캐시된 토큰 확인
+    """KIS 토큰 조회 또는 생성 - 캐시 우선 사용"""
+    # 1단계: 캐시된 토큰 확인 (23시간 미만)
     cached_token = get_cached_token()
     if cached_token:
+        print("🔄 캐시된 KIS 토큰 사용")
         return cached_token
     
-    # 새 토큰 발급
+    # 2단계: 새 토큰 발급 (캐시에 없을 때만)
+    print("🔑 새 KIS 토큰 발급 중...")
     new_token = get_kis_token()
     if new_token:
         save_token(new_token)
+        print("✅ 새 KIS 토큰 발급 완료")
         return new_token
     
+    print("❌ KIS 토큰 발급 실패")
     return None
 
 
@@ -88,11 +92,20 @@ def background_update_worker():
     while background_update_running:
         try:
             print(f"[{datetime.datetime.now()}] 백그라운드 업데이트 시작")
+            
+            # 토큰 상태 확인
+            token = get_or_create_kis_token()
+            if token:
+                print("🔑 KIS 토큰 준비 완료")
+            else:
+                print("⚠️ KIS 토큰 준비 실패 - 선물 데이터 스킵")
+            
+            # 데이터 업데이트
             update_gold_data()
             cleanup_old_data()
-            print("백그라운드 업데이트 완료")
+            print("✅ 백그라운드 업데이트 완료")
         except Exception as e:
-            print(f"백그라운드 업데이트 오류: {e}")
+            print(f"❌ 백그라운드 업데이트 오류: {e}")
         
         # 10분 대기
         time.sleep(600)
@@ -258,6 +271,30 @@ def health_check():
         "timestamp": datetime.datetime.now().isoformat(),
         "background_update_running": background_update_running
     })
+
+
+@app.route('/api/token-status', methods=['GET'])
+def get_token_status():
+    """토큰 상태 확인"""
+    try:
+        cached_token = get_cached_token()
+        if cached_token:
+            # 토큰의 앞 10자리와 뒷 5자리만 표시 (보안)
+            masked_token = f"{cached_token[:10]}...{cached_token[-5:]}"
+            return jsonify({
+                "status": "토큰 있음",
+                "token_preview": masked_token,
+                "cache_hit": True,
+                "message": "캐시된 토큰 사용 중"
+            })
+        else:
+            return jsonify({
+                "status": "토큰 없음", 
+                "cache_hit": False,
+                "message": "새 토큰 발급이 필요합니다"
+            })
+    except Exception as e:
+        return jsonify({"error": f"토큰 상태 확인 오류: {str(e)}"}), 500
 
 
 if __name__ == '__main__':

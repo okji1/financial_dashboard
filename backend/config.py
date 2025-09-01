@@ -32,4 +32,4 @@ ACTIVE_CONTRACT_UPDATE_HOURS = 24
 # 데이터베이스 테이블명
 GOLD_DATA_TABLE = "gold_data"
 ACTIVE_CONTRACT_TABLE = "active_contracts"
-KIS_TOKENS_TABLE = "kis_tokens"
+KIS_TOKENS_TABLE = "kis_token"

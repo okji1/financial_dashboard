@@ -52,9 +52,17 @@ def generate_gold_futures_candidates():
 
 def get_domestic_futures_data(symbol):
     """Step 2: 국내 선물 데이터 수집 (KIS API) - GitHub 공식 저장소 기준"""
-    access_token = get_kis_token()
+    # database 모듈에서 캐시된 토큰 먼저 확인
+    from database import get_cached_token, save_token
+    
+    access_token = get_cached_token()
     if not access_token:
-        return None
+        # 캐시된 토큰이 없을 때만 새로 발급
+        access_token = get_kis_token()
+        if access_token:
+            save_token(access_token)
+        else:
+            return None
     
     # 국내선물옵션 기본시세 조회 API (GitHub 공식 저장소 기준)
     headers = {
