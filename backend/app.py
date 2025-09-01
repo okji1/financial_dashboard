@@ -8,15 +8,9 @@ import threading
 import time
 import datetime
 
-# 모듈화된 함수들 import
+# 모듈화된 함수들 import  
 from api_utils import get_kis_token
-from futures_api import find_active_gold_contract, generate_gold_futures_candidates, get_domestic_futures_data
-from gold_data import get_london_gold_data, calculate_gold_premium, get_premium_grade, analyze_gold_market_signals
-from analysis import analyze_cot_positions, analyze_korean_gold_etfs, generate_comprehensive_analysis
-from database import (
-    get_cached_token, save_token, get_cached_gold_data, save_gold_data,
-    get_active_contract, save_active_contract, cleanup_old_data
-)
+from database import get_cached_token, save_token, cleanup_old_data
 
 # Flask 앱 초기화
 app = Flask(__name__)
@@ -46,44 +40,6 @@ def get_or_create_kis_token():
     return None
 
 
-def update_gold_data():
-    """금 데이터 업데이트"""
-    try:
-        # 런던 금 데이터 조회
-        london_data = get_london_gold_data()
-        
-        # 활성 계약 조회
-        active_contract = get_active_contract()
-        if not active_contract:
-            # 새로운 활성 계약 찾기
-            new_contract = find_active_gold_contract()
-            if new_contract:
-                save_active_contract(new_contract)
-                active_contract = new_contract
-        
-        # 국내 선물 데이터 조회
-        domestic_data = None
-        if active_contract:
-            domestic_data = get_domestic_futures_data(active_contract.get('symbol'))
-        
-        # 프리미엄 계산
-        premium_data = None
-        if london_data and domestic_data:
-            premium_data = calculate_gold_premium(
-                london_data.get('krw_price'),
-                domestic_data.get('current_price')
-            )
-        
-        # 데이터 저장
-        if london_data or domestic_data:
-            save_gold_data(london_data, domestic_data, premium_data)
-        
-        return london_data, domestic_data, premium_data
-        
-    except Exception as e:
-        print(f"데이터 업데이트 오류: {e}")
-        return None, None, None
-
 
 def background_update_worker():
     """백그라운드 데이터 업데이트"""
@@ -93,22 +49,23 @@ def background_update_worker():
         try:
             print(f"[{datetime.datetime.now()}] 백그라운드 업데이트 시작")
             
-            # 토큰 상태 확인
-            token = get_or_create_kis_token()
-            if token:
-                print("🔑 KIS 토큰 준비 완료")
-            else:
-                print("⚠️ KIS 토큰 준비 실패 - 선물 데이터 스킵")
+            # 단순한 금 프리미엄 데이터 업데이트
+            from gold_data import get_gold_premium_data
+            premium_data = get_gold_premium_data()
             
-            # 데이터 업데이트
-            update_gold_data()
+            if premium_data:
+                print(f"✅ 금 프리미엄 업데이트 완료: {premium_data.get('premium_percentage', 'N/A')}%")
+            else:
+                print("⚠️ 금 프리미엄 업데이트 실패")
+            
+            # 오래된 데이터 정리
             cleanup_old_data()
-            print("✅ 백그라운드 업데이트 완료")
+            
         except Exception as e:
-            print(f"❌ 백그라운드 업데이트 오류: {e}")
+            print(f"백그라운드 업데이트 오류: {e}")
         
-        # 10분 대기
-        time.sleep(600)
+        # 5분마다 업데이트
+        time.sleep(300)
 
 
 def start_background_updates():
@@ -125,40 +82,17 @@ def start_background_updates():
 # API 엔드포인트들
 @app.route('/api/gold-premium', methods=['GET'])
 def get_gold_premium():
-    """금 프리미엄 조회"""
+    """금 프리미엄 분석 (현물 vs 현물)"""
     try:
-        # 캐시된 데이터 확인
-        cached_data = get_cached_gold_data()
-        if cached_data:
-            return jsonify({
-                "london_gold_usd": cached_data.get('london_gold_usd'),
-                "london_gold_krw": cached_data.get('london_gold_krw'),
-                "domestic_gold_price": cached_data.get('domestic_gold_price'),
-                "premium_percentage": cached_data.get('premium_percentage'),
-                "premium_grade": get_premium_grade(cached_data.get('premium_percentage')),
-                "exchange_rate": cached_data.get('exchange_rate'),
-                "active_contract": cached_data.get('active_contract'),
-                "cached": True
-            })
+        # 금 프리미엄 데이터 수집
+        from gold_data import get_gold_premium_data
         
-        # 실시간 데이터 조회
-        london_data, domestic_data, premium_data = update_gold_data()
+        premium_data = get_gold_premium_data()
         
-        if not london_data and not domestic_data:
-            return jsonify({"error": "데이터 조회 실패"}), 500
+        if not premium_data:
+            return jsonify({"error": "금 프리미엄 데이터 조회 실패"}), 500
         
-        result = {
-            "london_gold_usd": london_data.get('usd_price') if london_data else None,
-            "london_gold_krw": london_data.get('krw_price') if london_data else None,
-            "domestic_gold_price": domestic_data.get('current_price') if domestic_data else None,
-            "premium_percentage": premium_data.get('premium_percentage') if premium_data else None,
-            "premium_grade": get_premium_grade(premium_data.get('premium_percentage') if premium_data else None),
-            "exchange_rate": london_data.get('exchange_rate') if london_data else None,
-            "active_contract": domestic_data.get('symbol') if domestic_data else None,
-            "cached": False
-        }
-        
-        return jsonify(result)
+        return jsonify(premium_data)
         
     except Exception as e:
         return jsonify({"error": f"서버 오류: {str(e)}"}), 500
@@ -166,101 +100,27 @@ def get_gold_premium():
 
 @app.route('/api/investment-strategy', methods=['GET'])
 def get_investment_strategy():
-    """투자 전략 분석"""
+    """프리미엄 기반 투자 전략"""
     try:
-        # 캐시된 데이터 사용
-        cached_data = get_cached_gold_data()
-        if cached_data:
-            premium = cached_data.get('premium_percentage')
-            grade = get_premium_grade(premium)
-            
-            # 간단한 신호 생성
-            signals = []
-            if premium and premium < 2:
-                signals.append({"type": "매수신호", "message": "낮은 프리미엄", "strength": "강함"})
-            elif premium and premium > 6:
-                signals.append({"type": "매도신호", "message": "높은 프리미엄", "strength": "강함"})
-            
-            return jsonify({
-                "premium_grade": grade,
-                "signals": signals,
-                "recommendation": "프리미엄 기준 투자 전략을 참고하세요"
-            })
+        from gold_data import get_gold_premium_data, analyze_premium_signals
         
-        return jsonify({"error": "분석할 데이터가 없습니다"}), 404
+        # 프리미엄 데이터 조회
+        premium_data = get_gold_premium_data()
+        if not premium_data:
+            return jsonify({"error": "분석할 데이터가 없습니다"}), 404
+        
+        # 투자 신호 분석
+        signals = analyze_premium_signals(premium_data.get('premium_percentage'))
+        
+        return jsonify({
+            "premium_grade": premium_data.get('premium_grade'),
+            "premium_percentage": premium_data.get('premium_percentage'),
+            "signals": signals,
+            "recommendation": "프리미엄 기준 현물 금 투자 전략을 참고하세요"
+        })
         
     except Exception as e:
         return jsonify({"error": f"분석 오류: {str(e)}"}), 500
-
-
-@app.route('/api/gold-analysis', methods=['GET'])
-def get_gold_analysis():
-    """종합 금 분석"""
-    try:
-        # 기본 데이터 조회
-        london_data, domestic_data, premium_data = update_gold_data()
-        
-        # COT 분석
-        cot_data = analyze_cot_positions()
-        
-        # 종합 분석 생성
-        comprehensive_analysis = generate_comprehensive_analysis(
-            london_data, domestic_data, premium_data, cot_data
-        )
-        
-        if comprehensive_analysis:
-            return jsonify(comprehensive_analysis)
-        else:
-            return jsonify({"error": "분석 데이터 부족"}), 404
-            
-    except Exception as e:
-        return jsonify({"error": f"분석 오류: {str(e)}"}), 500
-
-
-@app.route('/api/active-contract', methods=['GET'])
-def get_active_contract_info():
-    """활성 계약 정보 조회"""
-    try:
-        active_contract = get_active_contract()
-        if active_contract:
-            return jsonify(active_contract)
-        
-        # 새로운 계약 찾기
-        new_contract = find_active_gold_contract()
-        if new_contract:
-            save_active_contract(new_contract)
-            return jsonify(new_contract)
-        
-        return jsonify({"error": "활성 계약을 찾을 수 없습니다"}), 404
-        
-    except Exception as e:
-        return jsonify({"error": f"조회 오류: {str(e)}"}), 500
-
-
-@app.route('/api/update-active-contract', methods=['POST'])
-def update_active_contract():
-    """활성 계약 수동 업데이트"""
-    try:
-        new_contract = find_active_gold_contract()
-        if new_contract:
-            save_active_contract(new_contract)
-            return jsonify({"message": "활성 계약 업데이트 완료", "contract": new_contract})
-        
-        return jsonify({"error": "새로운 계약을 찾을 수 없습니다"}), 404
-        
-    except Exception as e:
-        return jsonify({"error": f"업데이트 오류: {str(e)}"}), 500
-
-
-@app.route('/api/futures-candidates', methods=['GET'])
-def get_futures_candidates():
-    """선물 후보 월물 목록"""
-    try:
-        candidates = generate_gold_futures_candidates()
-        return jsonify({"candidates": candidates})
-        
-    except Exception as e:
-        return jsonify({"error": f"조회 오류: {str(e)}"}), 500
 
 
 @app.route('/health', methods=['GET'])

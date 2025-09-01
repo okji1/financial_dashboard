@@ -43,51 +43,85 @@ def get_kis_token():
 
 
 def get_naver_gold_price():
-    """네이버 금 시세 조회"""
+    """네이버 국제 금 시세 조회 (런던 현물)"""
     try:
-        url = "https://m.stock.naver.com/front-api/v1/marketIndex/category/CMDT"
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            'Referer': 'https://m.stock.naver.com/'
-        }
+        # 네이버 모바일 API - 국제 금시세 (GCcv1)
+        data = api_call("https://m.stock.naver.com/front-api/chart/pricesByPeriod?reutersCode=GCcv1&category=metals&chartInfoType=futures&scriptChartType=day")
         
-        response = requests.get(url, headers=headers)
-        response.raise_for_status()
-        data = response.json()
+        if data and data.get('result') and data['result'].get('priceInfos'):
+            price_infos = data['result']['priceInfos']
+            if price_infos:
+                latest = price_infos[-1]
+                current_price = latest.get('currentPrice')
+                if current_price:
+                    return float(str(current_price).replace(',', ''))
         
-        for item in data.get('result', []):
-            if item.get('reutersCode') == 'XAU=':  # 금 코드
-                return {
-                    'current_price': float(item.get('closePrice', 0)),
-                    'change': float(item.get('change', 0)),
-                    'change_rate': float(item.get('changeRate', 0)),
-                    'currency': 'USD'
-                }
+        # 백업: marketIndex API 시도
+        backup_data = api_call("https://m.stock.naver.com/front-api/marketIndex/prices?category=metals&reutersCode=GCcv1&page=1")
+        if backup_data and backup_data.get('result'):
+            close_price = backup_data['result'].get('closePrice')
+            if close_price:
+                return float(str(close_price).replace(',', ''))
+        
         return None
+        
     except Exception as e:
-        print(f"네이버 금 시세 조회 실패: {e}")
+        print(f"네이버 국제 금 시세 조회 실패: {e}")
+        return None
+
+
+def get_domestic_gold_price():
+    """국내 금 현물 시세 조회 (KRW/g)"""
+    try:
+        # 국내 금시세 (chart API)
+        domestic_data = api_call("https://m.stock.naver.com/front-api/chart/pricesByPeriod?reutersCode=M04020000&category=metals&chartInfoType=gold&scriptChartType=day")
+        domestic_price = None
+        
+        if domestic_data and domestic_data.get('result') and domestic_data['result'].get('priceInfos'):
+            # result 안의 priceInfos에서 최신 데이터 가져오기
+            price_infos = domestic_data['result']['priceInfos']
+            if price_infos:
+                latest = price_infos[-1]
+                current_price = latest.get('currentPrice')
+                if current_price:
+                    # 쉼표 제거 후 float 변환
+                    domestic_price = float(str(current_price).replace(',', ''))
+        
+        # 백업: marketIndex API 사용
+        if not domestic_price:
+            domestic_backup = api_call("https://m.stock.naver.com/front-api/marketIndex/prices?category=metals&reutersCode=M04020000&page=1")
+            if domestic_backup and domestic_backup.get('result'):
+                close_price = domestic_backup['result'].get('closePrice')
+                if close_price:
+                    domestic_price = float(str(close_price).replace(',', ''))
+        
+        return domestic_price
+        
+    except Exception as e:
+        print(f"국내 금 시세 조회 실패: {e}")
         return None
 
 
 def get_exchange_rate():
-    """환율 조회 (USD/KRW)"""
+    """환율 조회 (USD/KRW) - 여러 날짜 시도"""
+    from datetime import datetime, timedelta
+    
     try:
-        params = {
-            'authkey': EXCHANGE_RATE_API_KEY,
-            'searchdate': '',
-            'data': 'AP01'
-        }
+        # 환율 조회 (여러 날짜 시도)
+        usd_krw_rate = None
+        for i in range(5):
+            date = (datetime.now().date() - timedelta(days=i)).strftime('%Y%m%d')
+            exchange_data = api_call(f"https://oapi.koreaexim.go.kr/site/program/financial/exchangeJSON?authkey={EXCHANGE_RATE_API_KEY}&searchdate={date}&data=AP01")
+            
+            if exchange_data and isinstance(exchange_data, list):
+                for item in exchange_data:
+                    if item.get('cur_unit') == 'USD':
+                        usd_krw_rate = float(item['deal_bas_r'].replace(',', ''))
+                        break
+                if usd_krw_rate:
+                    break
         
-        response = requests.get(EXCHANGE_RATE_URL, params=params)
-        response.raise_for_status()
-        data = response.json()
-        
-        for item in data:
-            if item.get('cur_unit') == 'USD':
-                return float(item.get('deal_bas_r', '0').replace(',', ''))
-        
-        # API 키 없을 때 기본값
-        return 1380.0
+        return usd_krw_rate if usd_krw_rate else 1380.0  # 기본값
         
     except Exception as e:
         print(f"환율 조회 실패: {e}")
