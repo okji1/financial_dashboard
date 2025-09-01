@@ -3,21 +3,16 @@
 import { useEffect, useState } from 'react';
 import Card from './Card';
 
+interface Signal {
+  type: string;
+  message: string;
+  strength: string;
+}
+
 interface StrategyData {
-  market_condition: string;
-  recommended_strategy: string;
-  supporting_data: {
-    price_trend: string;
-    speculative_position: string;
-    open_interest: string;
-  };
-  raw_data_summary: {
-    last_price: number;
-    volume: number;
-    speculative_net_long: number;
-    total_open_interest: number;
-  };
-  message?: string;
+  premium_grade: string;
+  signals: Signal[];
+  recommendation: string;
 }
 
 const InvestmentStrategy = () => {
@@ -49,11 +44,30 @@ const InvestmentStrategy = () => {
     };
 
     fetchData();
+    
+    // 5분마다 자동 새로고침
+    const interval = setInterval(fetchData, 5 * 60 * 1000);
+    return () => clearInterval(interval);
   }, []);
+
+  const getSignalColor = (type: string) => {
+    if (type.includes('매수')) return 'text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900';
+    if (type.includes('매도')) return 'text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900';
+    return 'text-yellow-600 dark:text-yellow-400 bg-yellow-50 dark:bg-yellow-900';
+  };
+
+  const getStrengthIcon = (strength: string) => {
+    switch (strength) {
+      case '강함': return '🔴';
+      case '중간': return '🟡';
+      case '약함': return '🟢';
+      default: return '⚪';
+    }
+  };
 
   const renderContent = () => {
     if (loading) {
-      return <p className="text-gray-500 dark:text-gray-400">Loading data...</p>;
+      return <p className="text-gray-500 dark:text-gray-400">Loading strategy data...</p>;
     }
     if (error) {
       return <p className="text-red-500">Error: {error}</p>;
@@ -61,19 +75,41 @@ const InvestmentStrategy = () => {
     if (data) {
       return (
         <div className="space-y-4">
-          <div>
-            <p className="text-center text-lg font-semibold">시장 상황: <span className="text-yellow-500">{data.market_condition}</span></p>
-            <p className="text-center text-2xl font-bold text-green-600 dark:text-green-400">{data.recommended_strategy}</p>
+          <div className="text-center p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
+            <h3 className="text-lg font-semibold mb-2">프리미엄 등급</h3>
+            <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">
+              {data.premium_grade}
+            </div>
           </div>
-          <div className="p-4 bg-gray-100 dark:bg-gray-700 rounded-md">
-            <h3 className="font-semibold mb-2">분석 근거 데이터</h3>
-            <ul className="space-y-1">
-              <li className="flex justify-between"><span>가격 추세:</span> <span>{data.supporting_data.price_trend}</span></li>
-              <li className="flex justify-between"><span>투기적 포지션:</span> <span>{data.supporting_data.speculative_position}</span></li>
-              <li className="flex justify-between"><span>미결제 약정:</span> <span>{data.supporting_data.open_interest}</span></li>
-            </ul>
+
+          {data.signals && data.signals.length > 0 && (
+            <div className="space-y-3">
+              <h3 className="font-semibold text-gray-700 dark:text-gray-300">매매 신호</h3>
+              {data.signals.map((signal, index) => (
+                <div key={index} className={`p-3 rounded-lg border ${getSignalColor(signal.type)}`}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2">
+                      <span>{getStrengthIcon(signal.strength)}</span>
+                      <span className="font-semibold">{signal.type}</span>
+                      <span className="text-xs px-2 py-1 rounded bg-white dark:bg-gray-700">
+                        {signal.strength}
+                      </span>
+                    </div>
+                  </div>
+                  <p className="text-sm mt-2">{signal.message}</p>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="p-4 bg-blue-50 dark:bg-blue-900 rounded-lg">
+            <h3 className="font-semibold mb-2 text-blue-800 dark:text-blue-200">투자 권고사항</h3>
+            <p className="text-sm text-blue-700 dark:text-blue-300">{data.recommendation}</p>
           </div>
-          {data.message && <p className="text-sm text-center text-gray-500 dark:text-gray-400">*{data.message}*</p>}
+
+          <div className="text-xs text-gray-500 dark:text-gray-400 text-center">
+            * 투자 결정은 신중하게 하시고, 본 정보는 참고용입니다.
+          </div>
         </div>
       );
     }
@@ -81,7 +117,7 @@ const InvestmentStrategy = () => {
   };
 
   return (
-    <Card title="금 선물 투자 전략">
+    <Card title="투자 전략 분석">
       {renderContent()}
     </Card>
   );
