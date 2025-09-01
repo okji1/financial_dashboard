@@ -1,308 +1,268 @@
-import os
-import requests
+"""
+간소화된 Flask 애플리케이션
+"""
+
 from flask import Flask, jsonify
 from flask_cors import CORS
-from dotenv import load_dotenv
-from supabase import create_client, Client
-import datetime
-from datetime import timezone, timedelta
 import threading
 import time
+import datetime
 
-# 환경 변수 로드
-load_dotenv()
+# 모듈화된 함수들 import
+from api_utils import get_kis_token
+from futures_api import find_active_gold_contract, generate_gold_futures_candidates, get_domestic_futures_data
+from gold_data import get_london_gold_data, calculate_gold_premium, get_premium_grade, analyze_gold_market_signals
+from analysis import analyze_cot_positions, analyze_korean_gold_etfs, generate_comprehensive_analysis
+from database import (
+    get_cached_token, save_token, get_cached_gold_data, save_gold_data,
+    get_active_contract, save_active_contract, cleanup_old_data
+)
 
 # Flask 앱 초기화
 app = Flask(__name__)
 CORS(app)
 
-# 환경 변수
-EXCHANGE_RATE_API_KEY = os.getenv("EXCHANGE_RATE_API_KEY")
-KIS_APP_KEY = os.getenv("KIS_APP_KEY")
-KIS_APP_SECRET = os.getenv("KIS_APP_SECRET")
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+# 전역 변수
+background_update_running = False
 
-# Supabase 클라이언트
-try:
-    supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-except Exception as e:
-    print(f"Supabase 초기화 실패: {e}")
-    supabase = None
 
-# API 호출 헬퍼
-def api_call(url, headers=None, json_data=None):
-    try:
-        if json_data:
-            response = requests.post(url, headers=headers, json=json_data, timeout=10)
-        else:
-            response = requests.get(url, headers=headers, timeout=10)
-        response.raise_for_status()
-        return response.json()
-    except Exception as e:
-        print(f"API 호출 실패: {e}")
-        return None
-
-# KIS 토큰 관리
-def get_kis_token():
-    if not supabase:
-        return None
-
-    # 기존 토큰 확인
-    try:
-        response = supabase.table('kis_token').select('*').order('created_at', desc=True).limit(1).execute()
-        if response.data:
-            token_data = response.data[0]
-            created_at = datetime.datetime.fromisoformat(token_data['created_at'])
-            if datetime.datetime.now(timezone.utc) - created_at < datetime.timedelta(hours=23):
-                return token_data['access_token']
-    except Exception:
-        pass
-
+def get_or_create_kis_token():
+    """KIS 토큰 조회 또는 생성"""
+    # 캐시된 토큰 확인
+    cached_token = get_cached_token()
+    if cached_token:
+        return cached_token
+    
     # 새 토큰 발급
-    token_data = {
-        "grant_type": "client_credentials",
-        "appkey": KIS_APP_KEY,
-        "appsecret": KIS_APP_SECRET
-    }
+    new_token = get_kis_token()
+    if new_token:
+        save_token(new_token)
+        return new_token
     
-    result = api_call(
-        "https://openapi.koreainvestment.com:9443/oauth2/tokenP",
-        headers={"content-type": "application/json"},
-        json_data=token_data
-    )
-    
-    if result and result.get("access_token"):
-        access_token = result["access_token"]
-        if supabase:
-            try:
-                supabase.table('kis_token').insert({
-                    'access_token': access_token,
-                    'expires_in': result.get('expires_in'),
-                }).execute()
-            except Exception:
-                pass
-        return access_token
     return None
 
-# 금시세 조회
-def get_gold_prices():
-    """수정된 금 시세 조회 함수 - API 응답 구조 변경 대응"""
-    
-    # 국제 금시세 (chart API)
-    intl_data = api_call("https://m.stock.naver.com/front-api/chart/pricesByPeriod?reutersCode=GCcv1&category=metals&chartInfoType=futures&scriptChartType=day")
-    international_price = None
-    
-    if intl_data and intl_data.get('result') and intl_data['result'].get('priceInfos'):
-        # result 안의 priceInfos에서 최신 데이터 가져오기
-        price_infos = intl_data['result']['priceInfos']
-        if price_infos:
-            latest = price_infos[-1]
-            current_price = latest.get('currentPrice')
-            if current_price:
-                # 쉼표 제거 후 float 변환
-                international_price = float(str(current_price).replace(',', ''))
-    
-    # 백업: marketIndex API 사용
-    if not international_price:
-        intl_backup = api_call("https://m.stock.naver.com/front-api/marketIndex/prices?category=metals&reutersCode=GCcv1&page=1")
-        if intl_backup and intl_backup.get('result'):
-            close_price = intl_backup['result'].get('closePrice')
-            if close_price:
-                international_price = float(str(close_price).replace(',', ''))
-    
-    # 국내 금시세 (chart API)
-    domestic_data = api_call("https://m.stock.naver.com/front-api/chart/pricesByPeriod?reutersCode=M04020000&category=metals&chartInfoType=gold&scriptChartType=day")
-    domestic_price = None
-    
-    if domestic_data and domestic_data.get('result') and domestic_data['result'].get('priceInfos'):
-        # result 안의 priceInfos에서 최신 데이터 가져오기
-        price_infos = domestic_data['result']['priceInfos']
-        if price_infos:
-            latest = price_infos[-1]
-            current_price = latest.get('currentPrice')
-            if current_price:
-                # 쉼표 제거 후 float 변환
-                domestic_price = float(str(current_price).replace(',', ''))
-    
-    # 백업: marketIndex API 사용
-    if not domestic_price:
-        domestic_backup = api_call("https://m.stock.naver.com/front-api/marketIndex/prices?category=metals&reutersCode=M04020000&page=1")
-        if domestic_backup and domestic_backup.get('result'):
-            close_price = domestic_backup['result'].get('closePrice')
-            if close_price:
-                domestic_price = float(str(close_price).replace(',', ''))
-    
-    # 환율 조회 (여러 날짜 시도)
-    usd_krw_rate = None
-    for i in range(5):
-        date = (datetime.date.today() - timedelta(days=i)).strftime('%Y%m%d')
-        exchange_data = api_call(f"https://oapi.koreaexim.go.kr/site/program/financial/exchangeJSON?authkey={EXCHANGE_RATE_API_KEY}&searchdate={date}&data=AP01")
+
+def update_gold_data():
+    """금 데이터 업데이트"""
+    try:
+        # 런던 금 데이터 조회
+        london_data = get_london_gold_data()
         
-        if exchange_data and isinstance(exchange_data, list):
-            for item in exchange_data:
-                if item.get('cur_unit') == 'USD':
-                    usd_krw_rate = float(item['deal_bas_r'].replace(',', ''))
-                    break
-            if usd_krw_rate:
-                break
-    
-    # 결과 검증
-    if not all([international_price, domestic_price, usd_krw_rate]):
-        missing = []
-        if not international_price: missing.append("국제 금시세")
-        if not domestic_price: missing.append("국내 금시세")
-        if not usd_krw_rate: missing.append("환율")
-        return {"error": f"데이터 조회 실패: {', '.join(missing)}"}
-    
-    # 프리미엄 계산
-    intl_price_krw_g = (international_price / 31.1035) * usd_krw_rate
-    premium = ((domestic_price - intl_price_krw_g) / intl_price_krw_g) * 100
-    
-    return {
-        "international_price_usd_oz": international_price,
-        "domestic_price_krw_g": domestic_price,
-        "usd_krw_rate": usd_krw_rate,
-        "converted_intl_price_krw_g": intl_price_krw_g,
-        "premium_percentage": premium,
-        "last_updated": datetime.datetime.now(timezone.utc).isoformat()
-    }
-
-# 투자전략 업데이트
-def update_strategy():
-    if not supabase:
-        return False
-
-    # 10분 이내 업데이트 체크
-    try:
-        response = supabase.table('investment_strategies').select('created_at').order('created_at', desc=True).limit(1).execute()
-        if response.data:
-            last_update = datetime.datetime.fromisoformat(response.data[0]['created_at'])
-            if (datetime.datetime.now(timezone.utc) - last_update).total_seconds() <= 600:
-                return False
-    except Exception:
-        pass
-
-    # KIS 토큰 발급
-    access_token = get_kis_token()
-    if not access_token:
-        return False
-
-    # 종목 데이터 수집
-    headers = {
-        "authorization": f"Bearer {access_token}",
-        "appkey": KIS_APP_KEY,
-        "appsecret": KIS_APP_SECRET,
-        "tr_id": "FHKST01010100",
-        "custtype": "P"
-    }
-
-    results = []
-    for symbol in ["132030", "411060", "069500"]:
-        url = f"https://openapi.koreainvestment.com:9443/uapi/domestic-stock/v1/quotations/inquire-price?FID_COND_MRKT_DIV_CODE=J&FID_INPUT_ISCD={symbol}"
-        data = api_call(url, headers=headers)
-
-        if data and data.get('rt_cd') == '0' and data.get('output'):
-            output = data['output']
-            change_rate = float(output.get('prdy_ctrt', 0))
-            results.append({
-                "symbol": symbol,
-                "current_price": float(output.get('stck_prpr', 0)),
-                "volume": int(output.get('acml_vol', 0)),
-                "change_rate": change_rate
-            })
-
-    if not results:
-        return False
-
-    # 전략 분석
-    avg_change_rate = sum(item['change_rate'] for item in results) / len(results)
-
-    if avg_change_rate > 1:
-        condition, strategy = "강세", "콜옵션 매수"
-    elif avg_change_rate > 0:
-        condition, strategy = "약세상승", "콜옵션 소량매수"
-    elif avg_change_rate < -1:
-        condition, strategy = "약세", "풋옵션 매수"
-    elif avg_change_rate < 0:
-        condition, strategy = "약세하락", "풋옵션 소량매수"
-    else:
-        condition, strategy = "횡보", "관망"
-
-    # DB 저장
-    try:
-        supabase.table('investment_strategies').insert({
-            'market_condition': condition,
-            'recommended_strategy': strategy,
-            'average_change_rate': avg_change_rate,
-            'total_volume': sum(item['volume'] for item in results),
-            'analyzed_symbols': len(results),
-            'detailed_analysis': results
-        }).execute()
-
-        # 오래된 데이터 정리
-        all_data = supabase.table('investment_strategies').select('id').order('created_at', desc=False).execute()
-        if len(all_data.data) > 10:
-            for old_item in all_data.data[:-10]:
-                supabase.table('investment_strategies').delete().eq('id', old_item['id']).execute()
-
-        return True
-    except Exception:
-        return False
-
-# API Routes
-@app.route('/')
-@app.route('/api')
-def health():
-    return jsonify({"status": "ok", "message": "Financial Dashboard API"})
-
-@app.route('/api/gold-premium')
-def gold_premium():
-    result = get_gold_prices()
-    if "error" in result:
-        return jsonify(result), 500
-    return jsonify({**result, "message": "금시세 조회 완료"})
-
-@app.route('/api/investment-strategy')
-def investment_strategy():
-    if not supabase:
-        return jsonify({"error": "Database unavailable"}), 500
-
-    # 업데이트 시도
-    update_strategy()
-
-    # 최신 데이터 조회
-    try:
-        response = supabase.table('investment_strategies').select('*').order('created_at', desc=True).limit(1).execute()
-        if not response.data:
-            return jsonify({"error": "전략 데이터 없음"}), 404
-
-        data = response.data[0]
-        return jsonify({
-            "market_condition": data.get('market_condition'),
-            "recommended_strategy": data.get('recommended_strategy'),
-            "supporting_data": {
-                "average_change_rate": data.get('average_change_rate', 0),
-                "total_volume": data.get('total_volume', 0),
-                "analyzed_symbols": data.get('analyzed_symbols', 0)
-            },
-            "detailed_analysis": data.get('detailed_analysis', []),
-            "analysis_time": data.get('created_at'),
-            "message": "투자전략 분석 완료"
-        })
+        # 활성 계약 조회
+        active_contract = get_active_contract()
+        if not active_contract:
+            # 새로운 활성 계약 찾기
+            new_contract = find_active_gold_contract()
+            if new_contract:
+                save_active_contract(new_contract)
+                active_contract = new_contract
+        
+        # 국내 선물 데이터 조회
+        domestic_data = None
+        if active_contract:
+            domestic_data = get_domestic_futures_data(active_contract.get('symbol'))
+        
+        # 프리미엄 계산
+        premium_data = None
+        if london_data and domestic_data:
+            premium_data = calculate_gold_premium(
+                london_data.get('krw_price'),
+                domestic_data.get('current_price')
+            )
+        
+        # 데이터 저장
+        if london_data or domestic_data:
+            save_gold_data(london_data, domestic_data, premium_data)
+        
+        return london_data, domestic_data, premium_data
+        
     except Exception as e:
-        return jsonify({"error": f"조회 오류: {e}"}), 500
+        print(f"데이터 업데이트 오류: {e}")
+        return None, None, None
 
-# 백그라운드 업데이터
-def background_updater():
-    while True:
+
+def background_update_worker():
+    """백그라운드 데이터 업데이트"""
+    global background_update_running
+    
+    while background_update_running:
         try:
-            update_strategy()
-        except Exception:
-            pass
+            print(f"[{datetime.datetime.now()}] 백그라운드 업데이트 시작")
+            update_gold_data()
+            cleanup_old_data()
+            print("백그라운드 업데이트 완료")
+        except Exception as e:
+            print(f"백그라운드 업데이트 오류: {e}")
+        
+        # 10분 대기
         time.sleep(600)
 
+
+def start_background_updates():
+    """백그라운드 업데이트 시작"""
+    global background_update_running
+    
+    if not background_update_running:
+        background_update_running = True
+        thread = threading.Thread(target=background_update_worker, daemon=True)
+        thread.start()
+        print("백그라운드 업데이트 시작됨")
+
+
+# API 엔드포인트들
+@app.route('/api/gold-premium', methods=['GET'])
+def get_gold_premium():
+    """금 프리미엄 조회"""
+    try:
+        # 캐시된 데이터 확인
+        cached_data = get_cached_gold_data()
+        if cached_data:
+            return jsonify({
+                "london_gold_usd": cached_data.get('london_gold_usd'),
+                "london_gold_krw": cached_data.get('london_gold_krw'),
+                "domestic_gold_price": cached_data.get('domestic_gold_price'),
+                "premium_percentage": cached_data.get('premium_percentage'),
+                "premium_grade": get_premium_grade(cached_data.get('premium_percentage')),
+                "exchange_rate": cached_data.get('exchange_rate'),
+                "active_contract": cached_data.get('active_contract'),
+                "cached": True
+            })
+        
+        # 실시간 데이터 조회
+        london_data, domestic_data, premium_data = update_gold_data()
+        
+        if not london_data and not domestic_data:
+            return jsonify({"error": "데이터 조회 실패"}), 500
+        
+        result = {
+            "london_gold_usd": london_data.get('usd_price') if london_data else None,
+            "london_gold_krw": london_data.get('krw_price') if london_data else None,
+            "domestic_gold_price": domestic_data.get('current_price') if domestic_data else None,
+            "premium_percentage": premium_data.get('premium_percentage') if premium_data else None,
+            "premium_grade": get_premium_grade(premium_data.get('premium_percentage') if premium_data else None),
+            "exchange_rate": london_data.get('exchange_rate') if london_data else None,
+            "active_contract": domestic_data.get('symbol') if domestic_data else None,
+            "cached": False
+        }
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        return jsonify({"error": f"서버 오류: {str(e)}"}), 500
+
+
+@app.route('/api/investment-strategy', methods=['GET'])
+def get_investment_strategy():
+    """투자 전략 분석"""
+    try:
+        # 캐시된 데이터 사용
+        cached_data = get_cached_gold_data()
+        if cached_data:
+            premium = cached_data.get('premium_percentage')
+            grade = get_premium_grade(premium)
+            
+            # 간단한 신호 생성
+            signals = []
+            if premium and premium < 2:
+                signals.append({"type": "매수신호", "message": "낮은 프리미엄", "strength": "강함"})
+            elif premium and premium > 6:
+                signals.append({"type": "매도신호", "message": "높은 프리미엄", "strength": "강함"})
+            
+            return jsonify({
+                "premium_grade": grade,
+                "signals": signals,
+                "recommendation": "프리미엄 기준 투자 전략을 참고하세요"
+            })
+        
+        return jsonify({"error": "분석할 데이터가 없습니다"}), 404
+        
+    except Exception as e:
+        return jsonify({"error": f"분석 오류: {str(e)}"}), 500
+
+
+@app.route('/api/gold-analysis', methods=['GET'])
+def get_gold_analysis():
+    """종합 금 분석"""
+    try:
+        # 기본 데이터 조회
+        london_data, domestic_data, premium_data = update_gold_data()
+        
+        # COT 분석
+        cot_data = analyze_cot_positions()
+        
+        # 종합 분석 생성
+        comprehensive_analysis = generate_comprehensive_analysis(
+            london_data, domestic_data, premium_data, cot_data
+        )
+        
+        if comprehensive_analysis:
+            return jsonify(comprehensive_analysis)
+        else:
+            return jsonify({"error": "분석 데이터 부족"}), 404
+            
+    except Exception as e:
+        return jsonify({"error": f"분석 오류: {str(e)}"}), 500
+
+
+@app.route('/api/active-contract', methods=['GET'])
+def get_active_contract_info():
+    """활성 계약 정보 조회"""
+    try:
+        active_contract = get_active_contract()
+        if active_contract:
+            return jsonify(active_contract)
+        
+        # 새로운 계약 찾기
+        new_contract = find_active_gold_contract()
+        if new_contract:
+            save_active_contract(new_contract)
+            return jsonify(new_contract)
+        
+        return jsonify({"error": "활성 계약을 찾을 수 없습니다"}), 404
+        
+    except Exception as e:
+        return jsonify({"error": f"조회 오류: {str(e)}"}), 500
+
+
+@app.route('/api/update-active-contract', methods=['POST'])
+def update_active_contract():
+    """활성 계약 수동 업데이트"""
+    try:
+        new_contract = find_active_gold_contract()
+        if new_contract:
+            save_active_contract(new_contract)
+            return jsonify({"message": "활성 계약 업데이트 완료", "contract": new_contract})
+        
+        return jsonify({"error": "새로운 계약을 찾을 수 없습니다"}), 404
+        
+    except Exception as e:
+        return jsonify({"error": f"업데이트 오류: {str(e)}"}), 500
+
+
+@app.route('/api/futures-candidates', methods=['GET'])
+def get_futures_candidates():
+    """선물 후보 월물 목록"""
+    try:
+        candidates = generate_gold_futures_candidates()
+        return jsonify({"candidates": candidates})
+        
+    except Exception as e:
+        return jsonify({"error": f"조회 오류: {str(e)}"}), 500
+
+
+@app.route('/health', methods=['GET'])
+def health_check():
+    """헬스 체크"""
+    return jsonify({
+        "status": "healthy",
+        "timestamp": datetime.datetime.now().isoformat(),
+        "background_update_running": background_update_running
+    })
+
+
 if __name__ == '__main__':
-    # 백그라운드 스레드 시작
-    threading.Thread(target=background_updater, daemon=True).start()
-    app.run()
+    # 백그라운드 업데이트 시작
+    start_background_updates()
+    
+    # Flask 앱 실행
+    app.run(debug=True, host='0.0.0.0', port=5000)

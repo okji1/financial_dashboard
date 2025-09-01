@@ -4,3 +4,6 @@ supabase
 python-dotenv
 gunicorn
 Flask-Cors
+cot-reports
+pandas
+numpy
