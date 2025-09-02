@@ -92,7 +92,20 @@ def get_gold_premium():
         if not premium_data:
             return jsonify({"error": "금 프리미엄 데이터 조회 실패"}), 500
         
-        return jsonify(premium_data)
+        # 프론트엔드 기대 구조로 변환
+        response_data = {
+            "london_gold_usd": premium_data.get('international_price_usd_oz'),
+            "london_gold_krw": premium_data.get('converted_intl_price_krw_g') * 31.1035,  # g당 가격을 oz당으로 변환
+            "domestic_gold_price": premium_data.get('domestic_price_krw_g'),
+            "premium_percentage": premium_data.get('premium_percentage'),
+            "premium_grade": premium_data.get('premium_grade'),
+            "exchange_rate": premium_data.get('usd_krw_rate'),
+            "active_contract": "현물금",  # 현물 거래이므로
+            "cached": False,  # 실시간 데이터
+            "timestamp": premium_data.get('timestamp')
+        }
+        
+        return jsonify(response_data)
         
     except Exception as e:
         return jsonify({"error": f"서버 오류: {str(e)}"}), 500

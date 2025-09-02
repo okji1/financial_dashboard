@@ -86,15 +86,15 @@ const GoldPremium = () => {
             </div>
             
             <div className="space-y-2">
-              <h3 className="font-semibold text-gray-700 dark:text-gray-300">국내 금 선물</h3>
+              <h3 className="font-semibold text-gray-700 dark:text-gray-300">국내 금 현물</h3>
               <ul className="space-y-1 text-sm">
                 <li className="flex justify-between">
-                  <span>계약</span> 
-                  <strong>{data.active_contract || 'N/A'}</strong>
+                  <span>타입</span> 
+                  <strong>{data.active_contract || '현물금'}</strong>
                 </li>
                 <li className="flex justify-between">
                   <span>가격</span> 
-                  <strong>₩{data.domestic_gold_price?.toLocaleString() || 'N/A'}</strong>
+                  <strong>₩{data.domestic_gold_price?.toLocaleString() || 'N/A'}/g</strong>
                 </li>
               </ul>
             </div>
