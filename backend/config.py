@@ -25,6 +25,12 @@ KIS_FUTURES_URL = "https://openapi.koreainvestment.com:9443/uapi/domestic-future
 NAVER_GOLD_URL = "https://polling.finance.naver.com/api/realtime/domestic/GOLD"
 EXCHANGE_RATE_URL = "https://www.koreaexim.go.kr/site/program/financial/exchangeJSON"
 
+# 네이버 금시세 API URLs (실제 사용)
+NAVER_GOLD_INTERNATIONAL_CHART_URL = "https://m.stock.naver.com/front-api/chart/pricesByPeriod?reutersCode=GCcv1&category=metals&chartInfoType=futures&scriptChartType=day"
+NAVER_GOLD_INTERNATIONAL_MARKET_URL = "https://m.stock.naver.com/front-api/marketIndex/prices?category=metals&reutersCode=GCcv1&page=1"
+NAVER_GOLD_DOMESTIC_CHART_URL = "https://m.stock.naver.com/front-api/chart/pricesByPeriod?reutersCode=M04020000&category=metals&chartInfoType=gold&scriptChartType=day"
+NAVER_GOLD_DOMESTIC_MARKET_URL = "https://m.stock.naver.com/front-api/marketIndex/prices?category=metals&reutersCode=M04020000&page=1"
+
 # 캐시 설정
 CACHE_DURATION_MINUTES = 10
 ACTIVE_CONTRACT_UPDATE_HOURS = 24
