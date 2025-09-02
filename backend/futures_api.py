@@ -51,18 +51,29 @@ def generate_gold_futures_candidates():
 
 
 def get_domestic_futures_data(symbol):
-    """Step 2: 국내 선물 데이터 수집 (KIS API) - GitHub 공식 저장소 기준"""
+    """Step 2: 국내 선물 데이터 수집 (KIS API) - 토큰 필수 확인"""
     # database 모듈에서 캐시된 토큰 먼저 확인
     from database import get_cached_token, save_token
     
     access_token = get_cached_token()
+    
+    # 토큰이 없거나 만료된 경우에만 새로 발급
     if not access_token:
-        # 캐시된 토큰이 없을 때만 새로 발급
+        print("🔄 KIS 토큰 새로 발급 중...")
         access_token = get_kis_token()
         if access_token:
             save_token(access_token)
+            print("✅ KIS 토큰 발급 및 저장 완료")
         else:
+            print("❌ KIS 토큰 발급 실패 - API 호출 중단")
             return None
+    else:
+        print("✅ 캐시된 KIS 토큰 재사용 중")
+    
+    # 토큰이 없으면 절대 API 호출하지 않음
+    if not access_token:
+        print("🚫 토큰 없음 - KIS API 호출 차단 (SMS 방지)")
+        return None
     
     # 국내선물옵션 기본시세 조회 API (GitHub 공식 저장소 기준)
     headers = {
@@ -82,6 +93,7 @@ def get_domestic_futures_data(symbol):
     query_string = "&".join([f"{k}={v}" for k, v in params.items()])
     url = f"{KIS_FUTURES_URL}?{query_string}"
     
+    print(f"🔗 KIS API 호출: {symbol} (토큰 포함)")
     data = api_call(url, headers=headers)
     
     if data and data.get('rt_cd') == '0' and data.get('output1'):
@@ -89,6 +101,7 @@ def get_domestic_futures_data(symbol):
         # 선물 데이터가 실제로 있는지 확인 (거래량 체크)
         volume = int(output1.get('acml_vol', 0))
         if volume > 0:  # 거래량이 있는 경우만 유효한 데이터로 간주
+            print(f"📊 {symbol} 선물 데이터 조회 성공 (거래량: {volume:,})")
             return {
                 "symbol": symbol,
                 "current_price": float(output1.get('futs_prpr', 0)),         # 선물현재가
@@ -98,6 +111,8 @@ def get_domestic_futures_data(symbol):
                 "high": float(output1.get('futs_hgpr', 0)),                  # 고가
                 "low": float(output1.get('futs_lwpr', 0))                    # 저가
             }
+    
+    print(f"⚠️ {symbol} 선물 데이터 없음 또는 거래량 0")
     return None
 
 

@@ -7,10 +7,11 @@ from flask_cors import CORS
 import threading
 import time
 import datetime
+from datetime import timezone, timedelta
 
 # 모듈화된 함수들 import  
 from api_utils import get_kis_token
-from database import get_cached_token, save_token, cleanup_old_data
+from database import get_cached_token, save_token, cleanup_old_data, get_active_contract, save_active_contract
 
 # Flask 앱 초기화
 app = Flask(__name__)
@@ -57,6 +58,23 @@ def background_update_worker():
                 print(f"✅ 금 프리미엄 업데이트 완료: {premium_data.get('premium_percentage', 'N/A')}%")
             else:
                 print("⚠️ 금 프리미엄 업데이트 실패")
+            
+            # 활성 계약 자동 업데이트 (1시간마다)
+            current_active = get_active_contract()
+            if not current_active or (datetime.now(timezone.utc) - datetime.fromisoformat(current_active['updated_at'].replace('Z', '+00:00'))) > timedelta(hours=1):
+                try:
+                    from futures_api import find_active_gold_contract
+                    print("🔍 활성 계약 업데이트 확인 중...")
+                    new_active = find_active_gold_contract()
+                    if new_active:
+                        save_active_contract(new_active)
+                        print(f"✅ 활성 계약 업데이트: {new_active.get('symbol')} (거래량: {new_active.get('volume', 0):,})")
+                    else:
+                        print("⚠️ 활성 계약 데이터 없음")
+                except Exception as e:
+                    print(f"⚠️ 활성 계약 업데이트 실패: {e}")
+            else:
+                print(f"ℹ️ 활성 계약 업데이트 건너뜀 (마지막 업데이트: {current_active.get('updated_at', 'N/A')})")
             
             # 오래된 데이터 정리
             cleanup_old_data()

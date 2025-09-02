@@ -36,6 +36,6 @@ CACHE_DURATION_MINUTES = 10
 ACTIVE_CONTRACT_UPDATE_HOURS = 24
 
 # 데이터베이스 테이블명
-GOLD_DATA_TABLE = "gold_data"
+GOLD_DATA_TABLE = "gold_prices"
 ACTIVE_CONTRACT_TABLE = "active_contracts"
 KIS_TOKENS_TABLE = "kis_token"
