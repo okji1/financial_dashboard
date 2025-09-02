@@ -116,8 +116,122 @@ def get_domestic_futures_data(symbol):
     return None
 
 
+def get_domestic_futures_orderbook(symbol):
+    """선물 호가 정보 조회 - 매수/매도 압력 분석용 (REST API 기반)"""
+    from database import get_cached_token, save_token
+    import requests
+    
+    access_token = get_cached_token()
+    
+    if not access_token:
+        print("🔄 KIS 토큰 새로 발급 중...")
+        access_token = get_kis_token()
+        if access_token:
+            save_token(access_token)
+            print("✅ KIS 토큰 발급 및 저장 완료")
+        else:
+            print("❌ KIS 토큰 발급 실패 - API 호출 중단")
+            return None
+    else:
+        print("✅ 캐시된 KIS 토큰 재사용 중 (호가 조회)")
+    
+    if not access_token:
+        print("🚫 토큰 없음 - KIS 호가 API 호출 차단")
+        return None
+    
+    try:
+        # Excel에서 확인한 정확한 REST API 사용
+        url = "https://openapi.koreainvestment.com:9443/uapi/domestic-futureoption/v1/quotations/inquire-asking-price"
+        
+        headers = {
+            'Content-Type': 'application/json; charset=utf-8',
+            'authorization': f'Bearer {access_token}',
+            'appkey': KIS_APP_KEY,
+            'appsecret': KIS_APP_SECRET,
+            'tr_id': 'FHMIF10010000'  # Excel에서 확인한 TR_ID
+        }
+        
+        params = {
+            'fid_cond_mrkt_div_code': 'F',  # F: 지수선물 (CF가 아님!)
+            'fid_input_iscd': symbol
+        }
+        
+        print(f"🔗 KIS 호가 API 호출: {symbol} (TR_ID: FHMIF10010000)")
+        response = requests.get(url, headers=headers, params=params)
+        
+        if response.status_code == 200:
+            data = response.json()
+            
+            if data.get('rt_cd') == '0':
+                output1 = data.get('output1', {})
+                output2 = data.get('output2', {})
+                
+                # Excel에서 확인한 핵심 필드들 사용
+                total_ask_quantity = int(output2.get('total_askp_rsqn', 0) or 0)  # 총 매도호가 잔량
+                total_bid_quantity = int(output2.get('total_bidp_rsqn', 0) or 0)  # 총 매수호가 잔량
+                
+                # 매수/매도 압력 분석
+                total_quantity = total_ask_quantity + total_bid_quantity
+                if total_quantity > 0:
+                    buy_pressure = (total_bid_quantity / total_quantity) * 100
+                    sell_pressure = (total_ask_quantity / total_quantity) * 100
+                else:
+                    buy_pressure = sell_pressure = 50.0
+                
+                # 압력 강도 분석
+                pressure_ratio = total_bid_quantity / total_ask_quantity if total_ask_quantity > 0 else 1.0
+                
+                if pressure_ratio > 1.2:
+                    pressure_signal = "강한 매수"
+                elif pressure_ratio > 1.05:
+                    pressure_signal = "약한 매수"
+                elif pressure_ratio < 0.8:
+                    pressure_signal = "강한 매도"
+                elif pressure_ratio < 0.95:
+                    pressure_signal = "약한 매도"
+                else:
+                    pressure_signal = "균형"
+                
+                print(f"📊 {symbol} 호가 분석 성공: 매수 {total_bid_quantity:,} vs 매도 {total_ask_quantity:,} → {pressure_signal}")
+                
+                return {
+                    "symbol": symbol,
+                    "contract_name": output1.get('hts_kor_isnm', ''),
+                    "current_price": output1.get('futs_prpr', '0'),
+                    "prev_day_price": output1.get('futs_prdy_clpr', '0'),
+                    "price_change": output1.get('futs_prdy_vrss', '0'),
+                    "change_rate": output1.get('futs_prdy_ctrt', '0'),
+                    "volume": output1.get('acml_vol', '0'),
+                    "total_ask_quantity": total_ask_quantity,
+                    "total_bid_quantity": total_bid_quantity,
+                    "buy_pressure_pct": round(buy_pressure, 2),
+                    "sell_pressure_pct": round(sell_pressure, 2),
+                    "pressure_ratio": round(pressure_ratio, 3),
+                    "pressure_signal": pressure_signal,
+                    "orderbook": {
+                        "ask_prices": [output2.get(f'futs_askp{i}', '') for i in range(1, 6)],
+                        "ask_quantities": [output2.get(f'askp_rsqn{i}', '') for i in range(1, 6)],
+                        "bid_prices": [output2.get(f'futs_bidp{i}', '') for i in range(1, 6)],
+                        "bid_quantities": [output2.get(f'bidp_rsqn{i}', '') for i in range(1, 6)],
+                        "ask_counts": [output2.get(f'askp_csnu{i}', '') for i in range(1, 6)],
+                        "bid_counts": [output2.get(f'bidp_csnu{i}', '') for i in range(1, 6)]
+                    },
+                    "last_update_time": output2.get('aspr_acpt_hour', '')
+                }
+            else:
+                print(f"⚠️ {symbol} API 오류: {data.get('msg1', 'Unknown error')}")
+                return None
+        else:
+            print(f"⚠️ {symbol} HTTP 오류: {response.status_code}")
+            return None
+            
+    except Exception as e:
+        print(f"⚠️ {symbol} 호가 조회 실패: {str(e)}")
+        return None
+
+
 def find_active_gold_contract():
-    """Step 3: 주 계약(Active Contract) 자동 선택"""
+    """Step 3: 주 계약(Active Contract) 자동 선택 + 매수/매도 압력 분석"""
     
     # 1. 후보 월물 생성
     candidates = generate_gold_futures_candidates()
@@ -126,13 +240,32 @@ def find_active_gold_contract():
     candidate_data = []
     for candidate in candidates:
         symbol = candidate['symbol']
-        data = get_domestic_futures_data(symbol)
         
-        if data:
-            candidate_data.append({
+        # 기본 시세 데이터
+        price_data = get_domestic_futures_data(symbol)
+        
+        # 호가 데이터 (매수/매도 압력 분석)
+        orderbook_data = get_domestic_futures_orderbook(symbol)
+        
+        if price_data:
+            combined_data = {
                 **candidate,
-                **data
-            })
+                **price_data
+            }
+            
+            # 호가 정보가 있으면 추가
+            if orderbook_data:
+                combined_data.update({
+                    "buy_pressure": orderbook_data.get("buy_pressure_pct", 0),
+                    "sell_pressure": orderbook_data.get("sell_pressure_pct", 0),
+                    "pressure_signal": orderbook_data.get("pressure_signal", "데이터 없음"),
+                    "best_bid": orderbook_data.get("orderbook", {}).get("bid_prices", [0])[0] if orderbook_data.get("orderbook", {}).get("bid_prices") else 0,
+                    "best_ask": orderbook_data.get("orderbook", {}).get("ask_prices", [0])[0] if orderbook_data.get("orderbook", {}).get("ask_prices") else 0,
+                    "total_bid_quantity": orderbook_data.get("total_bid_quantity", 0),
+                    "total_ask_quantity": orderbook_data.get("total_ask_quantity", 0)
+                })
+            
+            candidate_data.append(combined_data)
     
     # 3. 주 계약 선택 (거래량 기준)
     if not candidate_data:
@@ -140,5 +273,7 @@ def find_active_gold_contract():
     
     # 거래량이 가장 높은 월물 선택
     active_contract = max(candidate_data, key=lambda x: x['volume'])
+    
+    print(f"🎯 주계약 선택: {active_contract['symbol']} (거래량: {active_contract['volume']:,}, 매수압력: {active_contract.get('buy_pressure', 0)}%)")
     
     return active_contract

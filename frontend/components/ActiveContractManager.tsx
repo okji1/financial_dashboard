@@ -19,14 +19,35 @@ interface ActiveContract {
   expiry_year: number;
   expiry_month: number;
   updated_at: string;
+  buy_pressure?: number;
+  sell_pressure?: number;
+  pressure_signal?: string;
+  best_bid?: number;
+  best_ask?: number;
+  spread?: number;
 }
 
 const ActiveContractManager = () => {
   const [activeContract, setActiveContract] = useState<ActiveContract | null>(null);
   const [candidates, setCandidates] = useState<ContractCandidate[]>([]);
+  const [pressureAnalysis, setPressureAnalysis] = useState<any>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [updating, setUpdating] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+
+  const fetchPressureAnalysis = async () => {
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:5000';
+      const res = await fetch(`${apiUrl}/api/pressure-signal`);
+      
+      if (res.ok) {
+        const result = await res.json();
+        setPressureAnalysis(result);
+      }
+    } catch (e) {
+      console.error('Pressure analysis fetch error:', e);
+    }
+  };
 
   const fetchActiveContract = async () => {
     try {
@@ -89,14 +110,21 @@ const ActiveContractManager = () => {
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true);
-      await Promise.all([fetchActiveContract(), fetchCandidates()]);
+      await Promise.all([
+        fetchActiveContract(), 
+        fetchCandidates(),
+        fetchPressureAnalysis()
+      ]);
       setLoading(false);
     };
 
     fetchData();
     
     // 1시간마다 자동 새로고침
-    const interval = setInterval(fetchActiveContract, 60 * 60 * 1000);
+    const interval = setInterval(() => {
+      fetchActiveContract();
+      fetchPressureAnalysis();
+    }, 60 * 60 * 1000);
     return () => clearInterval(interval);
   }, []);
 
@@ -180,6 +208,60 @@ const ActiveContractManager = () => {
                 </div>
               </div>
             </div>
+
+            {/* 매수/매도 압력 분석 - 실제 API 데이터 사용 */}
+            {pressureAnalysis && (
+              <div className="mt-4 p-3 bg-yellow-50 dark:bg-yellow-900 rounded-lg">
+                <div className="flex justify-between items-center mb-2">
+                  <h4 className="font-semibold text-yellow-800 dark:text-yellow-200">실시간 매수/매도 압력 분석</h4>
+                  <button
+                    onClick={fetchPressureAnalysis}
+                    className="px-2 py-1 text-xs bg-yellow-600 text-white rounded hover:bg-yellow-700"
+                  >
+                    새로고침
+                  </button>
+                </div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div className="text-center">
+                    <div className="text-xs text-yellow-700 dark:text-yellow-300">매수 압력</div>
+                    <div className="text-lg font-bold text-green-600 dark:text-green-400">
+                      {pressureAnalysis.buy_pressure?.toFixed(1) || '0'}%
+                    </div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-xs text-yellow-700 dark:text-yellow-300">매도 압력</div>
+                    <div className="text-lg font-bold text-red-600 dark:text-red-400">
+                      {pressureAnalysis.sell_pressure?.toFixed(1) || '0'}%
+                    </div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-xs text-yellow-700 dark:text-yellow-300">시장 신호</div>
+                    <div className={`text-sm font-bold ${
+                      pressureAnalysis.pressure_signal?.includes('매수') ? 'text-green-600 dark:text-green-400' :
+                      pressureAnalysis.pressure_signal?.includes('매도') ? 'text-red-600 dark:text-red-400' :
+                      'text-gray-600 dark:text-gray-400'
+                    }`}>
+                      {pressureAnalysis.pressure_signal}
+                    </div>
+                  </div>
+                </div>
+                
+                <div className="mt-3 pt-3 border-t border-yellow-200 dark:border-yellow-700">
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="text-yellow-700 dark:text-yellow-300">
+                      종목: {pressureAnalysis.symbol}
+                    </span>
+                    <span className="text-yellow-700 dark:text-yellow-300">
+                      {pressureAnalysis.recommendation}
+                    </span>
+                    <span className="text-yellow-700 dark:text-yellow-300">
+                      업데이트: {pressureAnalysis.timestamp}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
 

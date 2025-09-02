@@ -2,7 +2,7 @@
 간소화된 Flask 애플리케이션
 """
 
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 from flask_cors import CORS
 import threading
 import time
@@ -272,6 +272,105 @@ def get_token_status():
             })
     except Exception as e:
         return jsonify({"error": f"토큰 상태 확인 오류: {str(e)}"}), 500
+
+
+@app.route('/api/orderbook-analysis', methods=['GET'])
+def get_orderbook_analysis():
+    """호가 데이터 기반 매수/매도 압력 분석"""
+    try:
+        from futures_api import find_active_gold_contract, get_domestic_futures_orderbook
+        
+        # 파라미터로 종목코드 받기 (기본값: 주계약)
+        symbol = request.args.get('symbol')
+        
+        if not symbol:
+            # 주계약 자동 선택
+            active_contract = find_active_gold_contract()
+            if not active_contract:
+                return jsonify({"error": "활성 계약을 찾을 수 없습니다"}), 404
+            symbol = active_contract['symbol']
+        
+        # 호가 분석 수행
+        orderbook_data = get_domestic_futures_orderbook(symbol)
+        
+        if not orderbook_data:
+            return jsonify({"error": f"{symbol} 종목의 호가 데이터를 찾을 수 없습니다"}), 404
+        
+        # 압력 분석 결과 정리
+        analysis_result = {
+            "symbol": symbol,
+            "contract_name": orderbook_data.get("contract_name", ""),
+            "current_price": orderbook_data.get("current_price", "0"),
+            "volume": orderbook_data.get("volume", "0"),
+            "pressure_analysis": {
+                "buy_pressure_pct": orderbook_data.get("buy_pressure_pct", 50.0),
+                "sell_pressure_pct": orderbook_data.get("sell_pressure_pct", 50.0),
+                "pressure_ratio": orderbook_data.get("pressure_ratio", 1.0),
+                "pressure_signal": orderbook_data.get("pressure_signal", "균형"),
+                "total_bid_quantity": orderbook_data.get("total_bid_quantity", 0),
+                "total_ask_quantity": orderbook_data.get("total_ask_quantity", 0)
+            },
+            "orderbook": orderbook_data.get("orderbook", {}),
+            "price_info": {
+                "prev_day_price": orderbook_data.get("prev_day_price", "0"),
+                "price_change": orderbook_data.get("price_change", "0"),
+                "change_rate": orderbook_data.get("change_rate", "0")
+            },
+            "last_update_time": orderbook_data.get("last_update_time", ""),
+            "analysis_time": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        }
+        
+        return jsonify(analysis_result)
+        
+    except Exception as e:
+        return jsonify({"error": f"호가 분석 오류: {str(e)}"}), 500
+
+
+@app.route('/api/pressure-signal', methods=['GET'])
+def get_pressure_signal():
+    """간단한 매수/매도 압력 신호만 반환"""
+    try:
+        from futures_api import find_active_gold_contract, get_domestic_futures_orderbook
+        
+        symbol = request.args.get('symbol')
+        
+        if not symbol:
+            active_contract = find_active_gold_contract()
+            if not active_contract:
+                return jsonify({"error": "활성 계약을 찾을 수 없습니다"}), 404
+            symbol = active_contract['symbol']
+        
+        orderbook_data = get_domestic_futures_orderbook(symbol)
+        
+        if not orderbook_data:
+            return jsonify({"error": "호가 데이터 없음"}), 404
+        
+        # 간단한 신호만 반환
+        signal_result = {
+            "symbol": symbol,
+            "pressure_signal": orderbook_data.get("pressure_signal", "균형"),
+            "buy_pressure": orderbook_data.get("buy_pressure_pct", 50.0),
+            "sell_pressure": orderbook_data.get("sell_pressure_pct", 50.0),
+            "recommendation": get_trading_recommendation(orderbook_data.get("pressure_signal", "균형")),
+            "timestamp": datetime.now().strftime('%H:%M:%S')
+        }
+        
+        return jsonify(signal_result)
+        
+    except Exception as e:
+        return jsonify({"error": f"압력 신호 조회 오류: {str(e)}"}), 500
+
+
+def get_trading_recommendation(pressure_signal):
+    """압력 신호 기반 매매 추천"""
+    recommendations = {
+        "강한 매수": "🟢 매수 고려 - 매수 압력이 강합니다",
+        "약한 매수": "🟡 관망 - 매수 압력이 약간 우세합니다", 
+        "균형": "⚪ 중립 - 매수/매도 압력이 균형입니다",
+        "약한 매도": "🟡 관망 - 매도 압력이 약간 우세합니다",
+        "강한 매도": "🔴 매도 고려 - 매도 압력이 강합니다"
+    }
+    return recommendations.get(pressure_signal, "⚪ 데이터 부족")
 
 
 if __name__ == '__main__':
