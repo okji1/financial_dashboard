@@ -72,7 +72,7 @@ const GoldPremium = () => {
         <div className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
-              <h3 className="font-semibold text-gray-700 dark:text-gray-300">런던 금 현물</h3>
+              <h3 className="font-semibold text-gray-700 dark:text-gray-300">GC뉴욕상품거래소 현물</h3>
               <ul className="space-y-1 text-sm">
                 <li className="flex justify-between">
                   <span>USD/oz</span> 

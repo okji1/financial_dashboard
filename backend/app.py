@@ -136,6 +136,92 @@ def get_investment_strategy():
         return jsonify({"error": f"분석 오류: {str(e)}"}), 500
 
 
+@app.route('/api/futures-candidates', methods=['GET'])
+def get_futures_candidates():
+    """선물 월물 후보 목록"""
+    try:
+        from futures_api import generate_gold_futures_candidates
+        candidates = generate_gold_futures_candidates()
+        
+        return jsonify({
+            "candidates": candidates,
+            "count": len(candidates)
+        })
+        
+    except Exception as e:
+        return jsonify({"error": f"후보 조회 오류: {str(e)}"}), 500
+
+
+@app.route('/api/active-contract', methods=['GET'])
+def get_active_contract():
+    """현재 활성 계약 정보"""
+    try:
+        from database import get_active_contract
+        from futures_api import get_domestic_futures_data
+        
+        # 저장된 활성 계약 조회
+        active_contract = get_active_contract()
+        
+        if not active_contract:
+            return jsonify({"error": "활성 계약이 설정되지 않았습니다"}), 404
+        
+        # 실시간 가격 정보 추가
+        current_data = get_domestic_futures_data(active_contract.get('symbol'))
+        if current_data:
+            active_contract.update(current_data)
+        
+        return jsonify(active_contract)
+        
+    except Exception as e:
+        return jsonify({"error": f"계약 조회 오류: {str(e)}"}), 500
+
+
+@app.route('/api/update-active-contract', methods=['POST'])
+def update_active_contract():
+    """활성 계약 업데이트 (거래량 기준)"""
+    try:
+        from futures_api import find_active_gold_contract
+        from database import save_active_contract
+        
+        # 거래량 기준으로 최적 계약 찾기
+        best_contract = find_active_gold_contract()
+        
+        if not best_contract:
+            return jsonify({"error": "적절한 활성 계약을 찾을 수 없습니다"}), 404
+        
+        # 데이터베이스에 저장
+        save_active_contract(best_contract)
+        
+        return jsonify({
+            "message": "활성 계약이 업데이트되었습니다",
+            "contract": best_contract
+        })
+        
+    except Exception as e:
+        return jsonify({"error": f"업데이트 오류: {str(e)}"}), 500
+
+
+@app.route('/api/gold-analysis', methods=['GET'])
+def get_gold_analysis():
+    """종합 금 시장 분석"""
+    try:
+        from gold_data import get_gold_premium_data
+        from analysis import generate_comprehensive_analysis
+        
+        # 기본 프리미엄 데이터
+        premium_data = get_gold_premium_data()
+        if not premium_data:
+            return jsonify({"error": "분석할 데이터가 없습니다"}), 404
+        
+        # 종합 분석 생성
+        analysis = generate_comprehensive_analysis(premium_data)
+        
+        return jsonify(analysis)
+        
+    except Exception as e:
+        return jsonify({"error": f"종합 분석 오류: {str(e)}"}), 500
+
+
 @app.route('/health', methods=['GET'])
 def health_check():
     """헬스 체크"""

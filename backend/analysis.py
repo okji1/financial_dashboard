@@ -116,31 +116,127 @@ def calculate_volatility(prices, window=20):
         return None
 
 
-def generate_comprehensive_analysis(london_data, domestic_data, premium_data, cot_data=None):
-    """종합 분석 리포트 생성"""
+def generate_comprehensive_analysis(premium_data):
+    """현물 프리미엄 중심 종합 분석 (단순화)"""
     try:
+        if not premium_data:
+            return {"error": "프리미엄 데이터가 없습니다"}
+        
+        premium_pct = premium_data.get('premium_percentage', 0)
+        
         analysis = {
-            "timestamp": datetime.datetime.now().isoformat(),
+            "timestamp": premium_data.get('timestamp', datetime.datetime.now().isoformat()),
             "market_overview": {
-                "london_gold_usd": london_data.get('usd_price') if london_data else None,
-                "london_gold_krw": london_data.get('krw_price') if london_data else None,
-                "domestic_gold_price": domestic_data.get('current_price') if domestic_data else None,
-                "premium_percentage": premium_data.get('premium_percentage') if premium_data else None
+                "london_gold_usd": premium_data.get('international_price_usd_oz'),
+                "london_gold_krw": premium_data.get('converted_intl_price_krw_g', 0) * 31.1035,  # g당을 oz당으로 변환
+                "domestic_gold_price": premium_data.get('domestic_price_krw_g'),
+                "premium_percentage": premium_pct
             },
             "risk_assessment": {
-                "premium_grade": get_premium_grade_detail(premium_data.get('premium_percentage') if premium_data else None),
-                "market_volatility": "분석 필요",  # 실제로는 변동성 계산
-                "liquidity_score": calculate_liquidity_score(domestic_data) if domestic_data else None
+                "premium_grade": get_premium_grade_detail(premium_pct),
+                "market_volatility": get_volatility_assessment(premium_pct),
+                "liquidity_score": 8.5  # 현물은 일반적으로 높은 유동성
             },
-            "trading_signals": generate_trading_signals(london_data, domestic_data, premium_data, cot_data),
-            "recommendations": generate_recommendations(premium_data, cot_data)
+            "trading_signals": generate_simple_trading_signals(premium_pct),
+            "recommendations": generate_premium_recommendations(premium_pct)
         }
         
         return analysis
         
     except Exception as e:
         print(f"종합 분석 생성 오류: {e}")
-        return None
+        return {"error": f"분석 생성 실패: {str(e)}"}
+
+
+def get_volatility_assessment(premium):
+    """프리미엄 기준 변동성 평가"""
+    if premium is None:
+        return "분석불가"
+    
+    abs_premium = abs(premium)
+    if abs_premium < 1:
+        return "낮음"
+    elif abs_premium < 3:
+        return "보통"
+    elif abs_premium < 5:
+        return "높음"
+    else:
+        return "매우높음"
+
+
+def generate_simple_trading_signals(premium):
+    """단순 프리미엄 기반 매매 신호"""
+    signals = []
+    
+    try:
+        if premium is None:
+            return signals
+        
+        if premium < -2:
+            signals.append({
+                "type": "BUY", 
+                "strength": "Strong", 
+                "reason": f"국내가 국제가보다 {abs(premium):.1f}% 저렴"
+            })
+        elif premium < 1:
+            signals.append({
+                "type": "BUY", 
+                "strength": "Medium", 
+                "reason": "낮은 프리미엄 - 매수 고려"
+            })
+        elif premium > 6:
+            signals.append({
+                "type": "SELL", 
+                "strength": "Strong", 
+                "reason": f"높은 프리미엄 {premium:.1f}% - 매도 고려"
+            })
+        elif premium > 4:
+            signals.append({
+                "type": "SELL", 
+                "strength": "Medium", 
+                "reason": "프리미엄 상승 - 주의 필요"
+            })
+        else:
+            signals.append({
+                "type": "HOLD", 
+                "strength": "Medium", 
+                "reason": "보통 프리미엄 - 관망"
+            })
+        
+        return signals
+        
+    except Exception as e:
+        print(f"매매 신호 생성 오류: {e}")
+        return []
+
+
+def generate_premium_recommendations(premium):
+    """프리미엄 기반 추천사항"""
+    recommendations = []
+    
+    try:
+        if premium is None:
+            return ["데이터 부족으로 분석이 어렵습니다."]
+        
+        if premium < -1:
+            recommendations.append("국내 금가가 국제가보다 저렴합니다. 좋은 매수 기회일 수 있습니다.")
+        elif premium < 2:
+            recommendations.append("적정 프리미엄 수준입니다. 매수를 고려해보세요.")
+        elif premium < 5:
+            recommendations.append("프리미엄이 다소 높습니다. 신중한 접근이 필요합니다.")
+        else:
+            recommendations.append("높은 프리미엄 상태입니다. 매수를 연기하거나 매도를 고려하세요.")
+        
+        # 공통 추천사항
+        recommendations.append("환율 변동에 따른 리스크를 고려하세요.")
+        recommendations.append("분산투자의 관점에서 접근하시기 바랍니다.")
+        recommendations.append("투자 전 개인의 리스크 허용도를 확인하세요.")
+        
+        return recommendations
+        
+    except Exception as e:
+        print(f"추천사항 생성 오류: {e}")
+        return ["전문가와 상담 후 투자하시기 바랍니다."]
 
 
 def get_premium_grade_detail(premium):
