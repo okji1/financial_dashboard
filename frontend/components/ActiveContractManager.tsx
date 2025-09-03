@@ -47,14 +47,21 @@ const ActiveContractManager = () => {
   const fetchPressureAnalysis = async () => {
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:5000';
+      console.log('🔗 Pressure API 호출:', `${apiUrl}/api/pressure-signal`);
+      
       const res = await fetch(`${apiUrl}/api/pressure-signal`);
+      console.log('📡 Pressure API 응답 상태:', res.status);
       
       if (res.ok) {
         const result = await res.json();
+        console.log('✅ Pressure 데이터 수신:', result);
         setPressureAnalysis(result);
+      } else {
+        const errorText = await res.text();
+        console.error('❌ Pressure API 오류:', res.status, errorText);
       }
     } catch (e) {
-      console.error('Pressure analysis fetch error:', e);
+      console.error('❌ Pressure analysis fetch error:', e);
     }
   };
 
@@ -219,18 +226,18 @@ const ActiveContractManager = () => {
             </div>
 
             {/* 매수/매도 압력 분석 - 실제 API 데이터 사용 */}
-            {pressureAnalysis && (
-              <div className="mt-4 p-3 bg-yellow-50 dark:bg-yellow-900 rounded-lg">
-                <div className="flex justify-between items-center mb-2">
-                  <h4 className="font-semibold text-yellow-800 dark:text-yellow-200">실시간 매수/매도 압력 분석</h4>
-                  <button
-                    onClick={fetchPressureAnalysis}
-                    className="px-2 py-1 text-xs bg-yellow-600 text-white rounded hover:bg-yellow-700"
-                  >
-                    새로고침
-                  </button>
-                </div>
-                
+            <div className="mt-4 p-3 bg-yellow-50 dark:bg-yellow-900 rounded-lg">
+              <div className="flex justify-between items-center mb-2">
+                <h4 className="font-semibold text-yellow-800 dark:text-yellow-200">실시간 매수/매도 압력 분석</h4>
+                <button
+                  onClick={fetchPressureAnalysis}
+                  className="px-2 py-1 text-xs bg-yellow-600 text-white rounded hover:bg-yellow-700"
+                >
+                  새로고침
+                </button>
+              </div>
+              
+              {pressureAnalysis ? (
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                   <div className="text-center">
                     <div className="text-xs text-yellow-700 dark:text-yellow-300">매수 압력</div>
@@ -255,7 +262,18 @@ const ActiveContractManager = () => {
                     </div>
                   </div>
                 </div>
-                
+              ) : (
+                <div className="text-center py-4">
+                  <div className="text-sm text-yellow-700 dark:text-yellow-300">
+                    매수/매도 압력 데이터를 불러오는 중...
+                  </div>
+                  <div className="text-xs text-yellow-600 dark:text-yellow-400 mt-1">
+                    브라우저 개발자 도구(F12) → Console에서 오류 확인 가능
+                  </div>
+                </div>
+              )}
+              
+              {pressureAnalysis && (
                 <div className="mt-3 pt-3 border-t border-yellow-200 dark:border-yellow-700">
                   <div className="flex justify-between items-center text-xs">
                     <span className="text-yellow-700 dark:text-yellow-300">
@@ -269,8 +287,8 @@ const ActiveContractManager = () => {
                     </span>
                   </div>
                 </div>
-              </div>
-            )}
+              )}
+            </div>
           </div>
         )}
 
