@@ -27,10 +27,19 @@ interface ActiveContract {
   spread?: number;
 }
 
+interface PressureAnalysis {
+  symbol: string;
+  pressure_signal: string;
+  buy_pressure: number;
+  sell_pressure: number;
+  recommendation: string;
+  timestamp: string;
+}
+
 const ActiveContractManager = () => {
   const [activeContract, setActiveContract] = useState<ActiveContract | null>(null);
   const [candidates, setCandidates] = useState<ContractCandidate[]>([]);
-  const [pressureAnalysis, setPressureAnalysis] = useState<any>(null);
+  const [pressureAnalysis, setPressureAnalysis] = useState<PressureAnalysis | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [updating, setUpdating] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
