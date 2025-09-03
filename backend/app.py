@@ -61,7 +61,7 @@ def background_update_worker():
             
             # 활성 계약 자동 업데이트 (1시간마다)
             current_active = get_active_contract()
-            if not current_active or (datetime.now(timezone.utc) - datetime.fromisoformat(current_active['updated_at'].replace('Z', '+00:00'))) > timedelta(hours=1):
+            if not current_active or (datetime.datetime.now(timezone.utc) - datetime.fromisoformat(current_active['updated_at'].replace('Z', '+00:00'))) > timedelta(hours=1):
                 try:
                     from futures_api import find_active_gold_contract
                     print("🔍 활성 계약 업데이트 확인 중...")
@@ -317,7 +317,7 @@ def get_orderbook_analysis():
                 "change_rate": orderbook_data.get("change_rate", "0")
             },
             "last_update_time": orderbook_data.get("last_update_time", ""),
-            "analysis_time": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            "analysis_time": datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         }
         
         return jsonify(analysis_result)
@@ -352,7 +352,7 @@ def get_pressure_signal():
             "buy_pressure": orderbook_data.get("buy_pressure_pct", 50.0),
             "sell_pressure": orderbook_data.get("sell_pressure_pct", 50.0),
             "recommendation": get_trading_recommendation(orderbook_data.get("pressure_signal", "균형")),
-            "timestamp": datetime.now().strftime('%H:%M:%S')
+            "timestamp": datetime.datetime.now().strftime('%H:%M:%S')
         }
         
         return jsonify(signal_result)
