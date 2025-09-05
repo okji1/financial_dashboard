@@ -383,6 +383,22 @@ if __name__ == '__main__':
 
 # In production (WSGI servers like gunicorn on Render), __name__ == '__main__' is False
 # so the background updater would not start. Ensure it starts on the first incoming request.
-@app.before_first_request
-def start_background_updates_on_first_request():
-    start_background_updates()
+# Some Flask builds/environments may not provide before_first_request.
+# Use a thread-safe before_request hook that runs start_background_updates() only once.
+_background_started = False
+_background_start_lock = threading.Lock()
+
+
+@app.before_request
+def ensure_background_updates_started():
+    global _background_started
+    if not _background_started:
+        # Acquire lock to ensure only one thread starts the background worker
+        with _background_start_lock:
+            if not _background_started:
+                try:
+                    start_background_updates()
+                    _background_started = True
+                    print("백그라운드 업데이트가 before_request로 시작되었습니다")
+                except Exception as e:
+                    print(f"백그라운드 업데이트 시작 오류: {e}")
