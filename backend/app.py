@@ -379,3 +379,10 @@ if __name__ == '__main__':
     
     # Flask 앱 실행
     app.run(debug=True, host='0.0.0.0', port=5000)
+
+
+# In production (WSGI servers like gunicorn on Render), __name__ == '__main__' is False
+# so the background updater would not start. Ensure it starts on the first incoming request.
+@app.before_first_request
+def start_background_updates_on_first_request():
+    start_background_updates()
