@@ -66,24 +66,15 @@ def background_update_worker():
                     try:
                         from futures_api import find_active_gold_contract
                         print("🔍 활성 계약 업데이트 확인 중...")
-                        try:
-                            new_active = find_active_gold_contract()
-                            print(f"🔎 find_active_gold_contract 반환값: {type(new_active)}")
-                        except Exception as fae:
-                            print(f"⚠️ find_active_gold_contract 예외: {fae!r}")
-                            new_active = None
-
+                        new_active = find_active_gold_contract()
                         if new_active:
-                            try:
-                                saved = save_active_contract(new_active)
-                                if saved:
-                                    print(f"✅ 활성 계약 저장 성공: {new_active.get('symbol')} (거래량: {new_active.get('volume', 0):,})")
-                                else:
-                                    print(f"❌ 활성 계약 저장 실패(함수 반환값 False): {new_active.get('symbol')} - 데이터가 Supabase에 저장되지 않았습니다")
-                            except Exception as se:
-                                print(f"❌ save_active_contract 예외 발생: {se!r}")
+                            saved = save_active_contract(new_active)
+                            if saved:
+                                print(f"✅ 활성 계약 업데이트: {new_active.get('symbol')} (거래량: {new_active.get('volume', 0):,})")
+                            else:
+                                print(f"⚠️ 활성 계약 저장 실패: {new_active.get('symbol')}")
                         else:
-                            print("⚠️ 활성 계약 데이터 없음 (find_active_gold_contract이 None 반환)")
+                            print("⚠️ 활성 계약 데이터 없음")
                     except Exception as e:
                         print(f"⚠️ 활성 계약 업데이트 실패: {e!r}")
                 else:
@@ -218,18 +209,12 @@ def update_active_contract():
         best_contract = find_active_gold_contract()
         
         if not best_contract:
-            print("update_active_contract: find_active_gold_contract 반환값 없음")
             return jsonify({"error": "적절한 활성 계약을 찾을 수 없습니다"}), 404
         
         # 데이터베이스에 저장
-        try:
-            saved = save_active_contract(best_contract)
-            if not saved:
-                print(f"update_active_contract: save_active_contract returned False for {best_contract.get('symbol')}")
-                return jsonify({"error": "활성 계약 저장 실패"}), 500
-        except Exception as e:
-            print(f"update_active_contract: save_active_contract 예외: {e!r}")
-            return jsonify({"error": f"저장 중 예외 발생: {str(e)}"}), 500
+        saved = save_active_contract(best_contract)
+        if not saved:
+            return jsonify({"error": "활성 계약 저장 실패"}), 500
 
         return jsonify({
             "message": "활성 계약이 업데이트되었습니다",

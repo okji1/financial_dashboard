@@ -108,14 +108,13 @@ def get_active_contract():
         if result and getattr(result, 'data', None) and len(result.data) > 0:
             return result.data[0]
 
-        # 폴백: 24시간 이내 레코드가 없으면 최신 레코드를 반환합니다. (디버깅 및 가용성 목적)
+        # 폴백: 24시간 이내 레코드가 없으면 최신 레코드를 반환
         try:
             fallback = supabase.table(ACTIVE_CONTRACT_TABLE).select("*").order("updated_at", desc=True).limit(1).execute()
             if fallback and getattr(fallback, 'data', None) and len(fallback.data) > 0:
-                print("정보: 활성 계약이 24시간 이내에 업데이트되지 않았습니다. 최신 레코드를 대신 반환합니다.")
                 return fallback.data[0]
         except Exception as e:
-            print(f"활성 계약 폴백 조회 오류: {e!r}")
+            print(f"활성 계약 폴백 조회 오류: {e}")
     except Exception as e:
         print(f"활성 계약 조회 오류: {e}")
     
