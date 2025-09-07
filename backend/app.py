@@ -45,9 +45,9 @@ def get_or_create_kis_token():
 def background_update_worker():
     """백그라운드 데이터 업데이트"""
     global background_update_running
-    # Ensure Flask application context is available for any Flask-dependent calls
-    with app.app_context():
-        while background_update_running:
+    while background_update_running:
+        # Push application context for each iteration to avoid cross-thread context issues
+        with app.app_context():
             try:
                 print(f"[{datetime.datetime.now()}] 백그라운드 업데이트 시작")
 
@@ -95,8 +95,8 @@ def background_update_worker():
             except Exception as e:
                 print(f"백그라운드 업데이트 오류: {e}")
 
-            # 5분마다 업데이트
-            time.sleep(300)
+        # 5분마다 업데이트
+        time.sleep(300)
 
 
 def start_background_updates():
