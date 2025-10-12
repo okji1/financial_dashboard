@@ -173,26 +173,28 @@ def get_futures_candidates():
 
 @app.route('/api/active-contract', methods=['GET'])
 def get_active_contract():
-    """현재 활성 계약 정보"""
+    """현재 활성 계약 정보 (매번 직접 조회)"""
     try:
-        from database import get_active_contract
-        from futures_api import get_domestic_futures_data
+        # DB를 거치지 않고, 항상 실시간으로 활성 계약을 찾음
+        from futures_api import find_active_gold_contract, get_domestic_futures_data
         
-        # 저장된 활성 계약 조회
-        active_contract = get_active_contract()
+        print("ℹ️ API 요청에 따라 활성 계약을 실시간으로 탐색합니다.")
+        active_contract = find_active_gold_contract()
         
         if not active_contract:
-            return jsonify({"error": "활성 계약이 설정되지 않았습니다"}), 404
-        
-        # 실시간 가격 정보 추가
+            return jsonify({"error": "현재 시장에서 활성 계약을 찾을 수 없습니다."}), 404
+
+        # 참고: find_active_gold_contract가 이미 최신 데이터를 포함하고 있지만,
+        # 한 번 더 호출하여 데이터를 최신으로 유지할 수 있습니다.
         current_data = get_domestic_futures_data(active_contract.get('symbol'))
         if current_data:
             active_contract.update(current_data)
-        
+
         return jsonify(active_contract)
-        
+
     except Exception as e:
-        return jsonify({"error": f"계약 조회 오류: {str(e)}"}), 500
+        print(f"🔥 /api/active-contract 엔드포인트 오류: {e}")
+        return jsonify({"error": f"활성 계약 조회 중 심각한 오류 발생: {str(e)}"}), 500
 
 
 @app.route('/api/update-active-contract', methods=['POST'])
