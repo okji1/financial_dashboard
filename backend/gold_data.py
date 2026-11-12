@@ -3,10 +3,33 @@
 """
 
 import datetime
+import threading
+import time
 from api_utils import get_naver_gold_price, get_domestic_gold_price, get_exchange_rate
 
 
+_gold_cache_lock = threading.Lock()
+_gold_cache = None
+_gold_cache_until = 0.0
+
+
 def get_gold_premium_data():
+    """Share a short-lived quote across several dashboard endpoints."""
+    global _gold_cache, _gold_cache_until
+    now = time.monotonic()
+    if _gold_cache is not None and now < _gold_cache_until:
+        return dict(_gold_cache)
+    with _gold_cache_lock:
+        if _gold_cache is not None and time.monotonic() < _gold_cache_until:
+            return dict(_gold_cache)
+        result = _collect_gold_premium_data()
+        if result is not None:
+            _gold_cache = dict(result)
+            _gold_cache_until = time.monotonic() + 60
+        return result
+
+
+def _collect_gold_premium_data():
     """금 프리미엄 분석을 위한 모든 데이터 수집"""
     try:
         # 1. 국제 금시세 (USD/oz)
