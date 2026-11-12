@@ -21,9 +21,9 @@ def api_call(url, headers=None, json_data=None):
     """API 호출 공통 함수"""
     try:
         if json_data:
-            response = requests.post(url, headers=headers, json=json_data)
+            response = requests.post(url, headers=headers, json=json_data, timeout=(3, 8))
         else:
-            response = requests.get(url, headers=headers)
+            response = requests.get(url, headers=headers, timeout=(3, 8))
         response.raise_for_status()
         return response.json()
     except requests.exceptions.RequestException as e:
