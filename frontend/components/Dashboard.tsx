@@ -5,6 +5,7 @@ import InvestmentStrategy from './InvestmentStrategy';
 import GoldAnalysis from './GoldAnalysis';
 import ActiveContractManager from './ActiveContractManager';
 import DataSources from './DataSources';
+import KRXGoldDaily from './KRXGoldDaily';
 import { ThemeSwitcher } from './ThemeSwitcher';
 import { Icon, type IconName } from './ui';
 
@@ -19,7 +20,7 @@ function DashboardContent() {
   const { premium, now } = market;
   const data = premium.data;
   const age = ageSeconds(data?.timestamp, now);
-  const remotes = [premium, market.strategy, market.analysis, market.active, market.candidates, market.pressure];
+  const remotes = [premium, market.strategy, market.analysis, market.active, market.candidates, market.pressure, market.krx];
   const loading = remotes.some(item => item.loading);
   const errors = remotes.some(item => item.error && item.error.status !== 404);
   const fresh = data && age !== null && age <= 90;
@@ -47,6 +48,7 @@ function DashboardContent() {
       <div className="primary-grid"><GoldPremium/><InvestmentStrategy/></div>
       <GoldAnalysis/>
       <ActiveContractManager/>
+      <KRXGoldDaily/>
       <DataSources/>
       <footer className="dashboard-footer"><span>GOLD DESK <i/> Financial Dashboard</span><p>수집 시세를 바탕으로 한 참고 정보입니다. 실제 거래 전 공급자의 기준 시각과 체결 가능 가격을 확인하세요.</p><a href="#overview">맨 위로<Icon name="arrow"/></a></footer>
       </main>

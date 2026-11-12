@@ -7,7 +7,7 @@ from fastapi import Depends, FastAPI, Query, Request
 from fastapi.exceptions import RequestValidationError, ResponseValidationError
 from fastapi.responses import JSONResponse
 from starlette.middleware.cors import CORSMiddleware
-from api_models import Premium, Strategy, Candidates, ActiveContract, Pressure, Analysis, Orderbook, Update, TokenStatus
+from api_models import Premium, Strategy, Candidates, ActiveContract, Pressure, Analysis, Orderbook, Update, TokenStatus, KRXGoldDaily
 from dashboard_service import DashboardService, ServiceError
 from shared_store import SharedStore, StoreUnavailable, utc_now
 
@@ -93,6 +93,11 @@ def analysis(service=Depends(get_service)):
 @api.get('/api/futures-candidates', response_model=Candidates)
 def candidates(service=Depends(get_service)):
     return service.candidates()
+
+
+@api.get('/api/krx-gold-daily', response_model=KRXGoldDaily)
+def krx_daily(service=Depends(get_service)):
+    return service.krx_daily()
 
 
 @api.get('/api/active-contract', response_model=ActiveContract)

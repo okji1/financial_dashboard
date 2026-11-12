@@ -40,5 +40,13 @@ function validatePayload(path: string, value: unknown) {
   if (path === '/api/futures-candidates') valid = Array.isArray(value.candidates) && value.candidates.every(c => object(c) && typeof c.symbol === 'string');
   if (path === '/api/active-contract') valid = typeof value.symbol === 'string' && numbers(value, ['current_price','volume']);
   if (path === '/api/pressure-signal') valid = typeof value.symbol === 'string' && numbers(value, ['buy_pressure','sell_pressure']) && typeof value.pressure_signal === 'string';
+  if (path === '/api/krx-gold-daily') valid = value.source === 'KRX_OPEN_API'
+    && typeof value.trade_date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value.trade_date)
+    && typeof value.fetched_at === 'string' && Number.isFinite(Date.parse(value.fetched_at))
+    && ['ok', 'delayed'].includes(String(value.refresh_state))
+    && Array.isArray(value.items) && value.items.length > 0 && value.items.every(item => object(item)
+      && ['04020000', '04020100'].includes(String(item.symbol)) && typeof item.name === 'string'
+      && numbers(item, ['volume_grams', 'trading_value_krw']) && Number(item.volume_grams) >= 0 && Number(item.trading_value_krw) >= 0
+      && ['close','change','change_rate','open','high','low'].every(k => item[k] === null || (typeof item[k] === 'number' && Number.isFinite(item[k]))));
   if (!valid) throw new ApiError('서버 응답 데이터 형식이 올바르지 않습니다.');
 }

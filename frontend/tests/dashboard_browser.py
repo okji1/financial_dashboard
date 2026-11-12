@@ -27,7 +27,7 @@ with sync_playwright() as p:
     browser=p.chromium.launch(executable_path=os.getenv('CHROMIUM_PATH','/usr/bin/chromium'),args=['--no-sandbox'])
     page=browser.new_page(viewport={'width':1440,'height':1000})
     errors=[];page.on('pageerror',lambda e:errors.append(str(e)))
-    mode={'gold':'ok'};pending=[]
+    mode={'gold':'ok','krx':'ok'};pending=[]
     clock={'now':datetime.datetime.now(datetime.timezone.utc)}
     def route_api(route):
         path=route.request.url.rsplit('/',1)[-1];status=200;payload=copy.deepcopy(fixtures.get(path))
@@ -42,6 +42,15 @@ with sync_playwright() as p:
             elif mode['gold']=='stale':payload['timestamp']=(clock['now']-datetime.timedelta(seconds=120)).isoformat()
         elif path=='futures-candidates':payload={'candidates':[],'count':0}
         elif path in ['active-contract','pressure-signal']:status,payload=404,{'error':'no contract'}
+        elif path=='krx-gold-daily':
+            payload={'source':'KRX_OPEN_API','trade_date':'2026-11-11','fetched_at':clock['now'].isoformat(),
+                'refresh_state':'delayed' if mode['krx']=='delayed' else 'ok',
+                'items':[{'symbol':'04020000','name':'금 99.99_1kg','close':100000,'change':0,'change_rate':0,
+                    'open':100000,'high':101000,'low':99000,'volume_grams':0,'trading_value_krw':0},
+                    {'symbol':'04020100','name':'미니금 99.99_100g','close':101000,'change':-1000,'change_rate':-0.98,
+                    'open':102000,'high':102000,'low':100000,'volume_grams':100,'trading_value_krw':10100000}]}
+            if mode['krx']=='error':status,payload=503,{'error':'KRX unavailable'}
+            elif mode['krx']=='malformed':payload['items'][0]['volume_grams']=-1
         route.fulfill(status=status,content_type='application/json',body=json.dumps(payload),headers={'Access-Control-Allow-Origin':'*'})
     def settled():
         # A visible error can precede the other five responses. Finish that batch
@@ -59,6 +68,22 @@ with sync_playwright() as p:
     expect(page.locator('#sources')).to_contain_text('거래 기준 시각 미제공')
     expect(page.locator('#sources')).to_contain_text('장 운영 상태·기준일은 추정해 표시하지 않습니다.')
     print('PASS: truthful prices, empty futures and missing source metadata')
+    expect(page.get_by_test_id('krx-trade-date')).to_have_text('2026. 11. 11')
+    expect(page.get_by_test_id('krx-04020000')).to_contain_text('100,000')
+    expect(page.get_by_test_id('krx-04020000')).to_contain_text('거래량0g')
+    expect(page.get_by_test_id('krx-04020100')).to_contain_text('-0.98%')
+    mode['krx']='delayed';advance()
+    expect(page.locator('#krx')).to_contain_text('확인 지연')
+    expect(page.locator('#krx')).to_contain_text('마지막으로 수집한 일별 자료')
+    mode['krx']='error';advance()
+    expect(page.locator('#krx [role="alert"]')).to_contain_text('데이터 서버 오류입니다.')
+    expect(page.get_by_test_id('krx-04020000')).to_have_count(0)
+    mode['krx']='malformed';advance()
+    expect(page.locator('#krx [role="alert"]')).to_contain_text('서버 응답 데이터 형식이 올바르지 않습니다.')
+    mode['krx']='ok';advance()
+    expect(page.get_by_test_id('krx-04020000')).to_be_visible()
+    expect(page.locator('#krx [role="alert"]')).to_have_count(0)
+    print('PASS: KRX trade date, gram units, delayed data, error isolation and recovery')
     mode['gold']='zero';advance()
     expect(page.get_by_test_id('metric-premium')).to_contain_text('0.00')
     mode['gold']='stale';advance()

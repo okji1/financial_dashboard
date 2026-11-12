@@ -14,6 +14,7 @@ from gold_data import _collect_gold_premium_data
 from gold_master import load_gold_contracts, MAX_MASTER_BYTES
 from futures_api import get_domestic_futures_data, get_domestic_futures_orderbook, FuturesUnavailable
 from shared_store import SharedStore, LeaseLost, StoreUnavailable, section, utc_now
+from krx_data import KRXDailyCache
 
 logger = logging.getLogger(__name__)
 MASTER_URL = 'https://new.real.download.dws.co.kr/common/master/fo_com_code.mst.zip'
@@ -62,10 +63,11 @@ class MasterCache:
 
 
 class SnapshotCollector:
-    def __init__(self, store, master, owner=None):
+    def __init__(self, store, master, owner=None, krx=None):
         self.store = store
         self.master = master
         self.owner = owner or str(uuid.uuid4())
+        self.krx = krx if krx is not None else KRXDailyCache()
 
     def renew(self):
         return self.store.claim(self.owner)
@@ -76,6 +78,7 @@ class SnapshotCollector:
                    'active_contract': section(state='unavailable'), 'orderbooks': {}}
         quote = _collect_gold_premium_data()
         payload['gold'] = section(quote, 'ok' if quote is not None else 'unavailable')
+        payload['krx_daily'] = self.krx.get(renew=self.renew)
         self.renew()
         try:
             candidates = self.master.get(force=force_master)

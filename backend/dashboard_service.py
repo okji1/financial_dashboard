@@ -83,6 +83,14 @@ class DashboardService:
     def candidates(self):
         return self.require(self.bundle().get('candidates'))
 
+    def krx_daily(self):
+        # Daily data has its own trade date and fetched_at, independent of the
+        # 90-second freshness required for the live snapshot envelope.
+        value = self.bundle().get('krx_daily')
+        if not isinstance(value, dict) or value.get('state') != 'ok':
+            raise ServiceError(503, 'KRX 일별 데이터를 일시적으로 사용할 수 없습니다')
+        return self.require(value)
+
     def active(self):
         return self.require(self.bundle().get('active_contract'), empty_message='활성 계약을 찾을 수 없습니다')
 

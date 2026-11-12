@@ -14,6 +14,12 @@ import kis_auth
 
 
 class SharedPipelineTests(unittest.TestCase):
+    def setUp(self):
+        # Unit tests never use a configured production KRX key.
+        krx = patch('snapshot_collector.KRXDailyCache')
+        krx.start().return_value.get.return_value = {'state':'unavailable','data':None,'collected_at':utc_now().isoformat()}
+        self.addCleanup(krx.stop)
+
     def test_expired_global_snapshot_cannot_be_read(self):
         store=SharedStore('https://test.supabase.co','test-only')
         row={'generation':'test','payload':{},'collected_at':utc_now().isoformat(),

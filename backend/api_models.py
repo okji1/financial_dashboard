@@ -1,6 +1,8 @@
 """Public contracts. Finite numbers and nullable unavailable measurements."""
 from pydantic import BaseModel, ConfigDict, Field
 from typing import Annotated
+from typing import Literal
+from datetime import date, datetime
 
 Number = Annotated[float, Field(allow_inf_nan=False, strict=True)]
 
@@ -119,3 +121,24 @@ class Update(ContractModel):
 
 class TokenStatus(BaseModel):
     cache_hit: bool
+
+
+class KRXGoldItem(BaseModel):
+    symbol: str
+    name: str
+    close: Number | None
+    change: Number | None
+    change_rate: Number | None
+    open: Number | None
+    high: Number | None
+    low: Number | None
+    volume_grams: Annotated[int, Field(ge=0, strict=True)]
+    trading_value_krw: Annotated[int, Field(ge=0, strict=True)]
+
+
+class KRXGoldDaily(BaseModel):
+    source: Literal['KRX_OPEN_API']
+    trade_date: date
+    fetched_at: datetime
+    refresh_state: Literal['ok', 'delayed']
+    items: Annotated[list[KRXGoldItem], Field(min_length=1)]
