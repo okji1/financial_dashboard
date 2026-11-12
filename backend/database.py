@@ -14,9 +14,11 @@ except Exception as e:
     supabase = None
 
 
-def get_cached_token():
+def get_cached_token(strict=False):
     """캐시된 KIS 토큰 조회"""
     if not supabase:
+        if strict:
+            raise RuntimeError("Supabase client unavailable")
         return None
     
     try:
@@ -31,6 +33,8 @@ def get_cached_token():
                 return token_data['access_token']
     except Exception as e:
         print(f"토큰 조회 오류: {e}")
+        if strict:
+            raise
     
     return None
 

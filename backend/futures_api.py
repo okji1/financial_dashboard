@@ -52,24 +52,9 @@ def generate_gold_futures_candidates():
 
 def get_domestic_futures_data(symbol):
     """Step 2: 국내 선물 데이터 수집 (KIS API) - 토큰 필수 확인"""
-    # database 모듈에서 캐시된 토큰 먼저 확인
-    from database import get_cached_token, save_token
-    
-    access_token = get_cached_token()
-    
-    # 토큰이 없거나 만료된 경우에만 새로 발급
-    if not access_token:
-        print("🔄 KIS 토큰 새로 발급 중...")
-        access_token = get_kis_token()
-        if access_token:
-            save_token(access_token)
-            print("✅ KIS 토큰 발급 및 저장 완료")
-        else:
-            print("❌ KIS 토큰 발급 실패 - API 호출 중단")
-            return None
-    else:
-        print("✅ 캐시된 KIS 토큰 재사용 중")
-    
+    from kis_auth import get_access_token
+    access_token = get_access_token()
+
     # 토큰이 없으면 절대 API 호출하지 않음
     if not access_token:
         print("🚫 토큰 없음 - KIS API 호출 차단 (SMS 방지)")
@@ -118,23 +103,11 @@ def get_domestic_futures_data(symbol):
 
 def get_domestic_futures_orderbook(symbol):
     """선물 호가 정보 조회 - 매수/매도 압력 분석용 (REST API 기반)"""
-    from database import get_cached_token, save_token
+    from kis_auth import get_access_token
     import requests
-    
-    access_token = get_cached_token()
-    
-    if not access_token:
-        print("🔄 KIS 토큰 새로 발급 중...")
-        access_token = get_kis_token()
-        if access_token:
-            save_token(access_token)
-            print("✅ KIS 토큰 발급 및 저장 완료")
-        else:
-            print("❌ KIS 토큰 발급 실패 - API 호출 중단")
-            return None
-    else:
-        print("✅ 캐시된 KIS 토큰 재사용 중 (호가 조회)")
-    
+
+    access_token = get_access_token()
+
     if not access_token:
         print("🚫 토큰 없음 - KIS 호가 API 호출 차단")
         return None

@@ -23,24 +23,9 @@ background_update_running = False
 
 
 def get_or_create_kis_token():
-    """KIS 토큰 조회 또는 생성 - 캐시 우선 사용"""
-    # 1단계: 캐시된 토큰 확인 (23시간 미만)
-    cached_token = get_cached_token()
-    if cached_token:
-        print("🔄 캐시된 KIS 토큰 사용")
-        return cached_token
-    
-    # 2단계: 새 토큰 발급 (캐시에 없을 때만)
-    print("🔑 새 KIS 토큰 발급 중...")
-    new_token = get_kis_token()
-    if new_token:
-        save_token(new_token)
-        print("✅ 새 KIS 토큰 발급 완료")
-        return new_token
-    
-    print("❌ KIS 토큰 발급 실패")
-    return None
-
+    """Central KIS token manager, shared with futures quotation calls."""
+    from kis_auth import get_access_token
+    return get_access_token()
 
 
 def background_update_worker():
