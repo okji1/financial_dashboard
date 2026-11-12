@@ -8,45 +8,28 @@ from config import KIS_APP_KEY, KIS_APP_SECRET, KIS_FUTURES_URL
 
 
 def generate_gold_futures_candidates():
-    """Step 1: 금 선물 후보 월물 목록 생성 (GitHub 공식 저장소 기준)"""
-    current_date = datetime.date.today()
-    current_year = current_date.year
-    current_month = current_date.month
-    
-    # 주요 월물: 짝수 달 + 12월 (2, 4, 6, 8, 10, 12)
-    major_months = [2, 4, 6, 8, 10, 12]
-    
+    """Use only explicitly verified commodity-futures codes.
+
+    The former 101X12-style symbols belong to index futures examples and
+    must never be fabricated as gold futures. An empty configuration means
+    the feature is unavailable (not a successful zero-volume result).
+    """
+    import os
+    import re
+
+    raw = os.getenv("KIS_GOLD_FUTURES_SYMBOLS", "")
+    symbols = [value.strip().upper() for value in raw.split(",") if value.strip()]
     candidates = []
-    
-    # 현재 월 이후의 가장 가까운 주요 월물부터 4개 생성
-    year = current_year
-    for i in range(8):  # 넉넉하게 8개월까지 체크
-        for month in major_months:
-            candidate_date = datetime.date(year, month, 1)
-            
-            # 현재 날짜 이후의 월물만 선택
-            if candidate_date > current_date:
-                # GitHub 예시 형식: 101W09 (금선물 + 연도코드 + 월코드)
-                # 101 = 금선물, W = 2025년, 09 = 9월
-                year_code = chr(ord('W') + (year - 2025))  # W(2025), X(2026), Y(2027)...
-                month_code = f"{month:02d}"                # 02, 04, 06, 08, 10, 12
-                symbol = f"101{year_code}{month_code}"     # 101W10
-                
-                candidates.append({
-                    "symbol": symbol,
-                    "year": year,
-                    "month": month,
-                    "expiry_date": candidate_date,
-                    "description": f"{year}년 {month}월물"
-                })
-                
-                if len(candidates) >= 4:  # 4개까지만
-                    return candidates
-        
-        year += 1
-        if year > current_year + 2:  # 최대 2년 후까지만
-            break
-    
+    for symbol in dict.fromkeys(symbols):
+        if not re.fullmatch(r"[A-Z0-9]{4,16}", symbol):
+            raise ValueError("Invalid KIS commodity futures symbol in configuration")
+        candidates.append({
+            "symbol": symbol,
+            "description": f"검증된 상품선물 {symbol}",
+            "year": None,
+            "month": None,
+            "expiry_date": None,
+        })
     return candidates
 
 
@@ -69,9 +52,14 @@ def get_domestic_futures_data(symbol):
         "custtype": "P"
     }
     
-    # 파라미터 설정 (GitHub 공식 저장소 기준)
+    # Gold is a commodity future; F is for index futures, not gold.
+    import os
+    market_code = os.getenv("KIS_GOLD_FUTURES_MARKET_CODE", "CF")
+    if market_code != "CF":
+        print("⚠️ 상품선물 시장구분 코드는 CF여야 합니다")
+        return None
     params = {
-        "FID_COND_MRKT_DIV_CODE": "F",  # F: 지수선물, O: 지수옵션
+        "FID_COND_MRKT_DIV_CODE": market_code,
         "FID_INPUT_ISCD": symbol        # 종목코드 (예: 101W09)
     }
     
@@ -125,7 +113,7 @@ def get_domestic_futures_orderbook(symbol):
         }
         
         params = {
-            'fid_cond_mrkt_div_code': 'F',  # F: 지수선물 (CF가 아님!)
+            'fid_cond_mrkt_div_code': 'CF',  # 상품선물
             'fid_input_iscd': symbol
         }
         
@@ -149,12 +137,16 @@ def get_domestic_futures_orderbook(symbol):
                     buy_pressure = (total_bid_quantity / total_quantity) * 100
                     sell_pressure = (total_ask_quantity / total_quantity) * 100
                 else:
-                    buy_pressure = sell_pressure = 50.0
+                    buy_pressure = sell_pressure = None
                 
                 # 압력 강도 분석
-                pressure_ratio = total_bid_quantity / total_ask_quantity if total_ask_quantity > 0 else 1.0
+                pressure_ratio = total_bid_quantity / total_ask_quantity if total_ask_quantity > 0 else None
                 
-                if pressure_ratio > 1.2:
+                if total_quantity == 0:
+                    pressure_signal = "데이터 없음"
+                elif pressure_ratio is None:
+                    pressure_signal = "강한 매수"
+                elif pressure_ratio > 1.2:
                     pressure_signal = "강한 매수"
                 elif pressure_ratio > 1.05:
                     pressure_signal = "약한 매수"
@@ -167,6 +159,10 @@ def get_domestic_futures_orderbook(symbol):
                 
                 print(f"📊 {symbol} 호가 분석 성공: 매수 {total_bid_quantity:,} vs 매도 {total_ask_quantity:,} → {pressure_signal}")
                 
+                if total_quantity == 0:
+                    print(f"⚠️ {symbol} 호가 잔량 없음 - 신호 계산 생략")
+                    return None
+
                 return {
                     "symbol": symbol,
                     "contract_name": output1.get('hts_kor_isnm', ''),
@@ -177,9 +173,9 @@ def get_domestic_futures_orderbook(symbol):
                     "volume": output1.get('acml_vol', '0'),
                     "total_ask_quantity": total_ask_quantity,
                     "total_bid_quantity": total_bid_quantity,
-                    "buy_pressure_pct": round(buy_pressure, 2),
-                    "sell_pressure_pct": round(sell_pressure, 2),
-                    "pressure_ratio": round(pressure_ratio, 3),
+                    "buy_pressure_pct": round(buy_pressure, 2) if buy_pressure is not None else None,
+                    "sell_pressure_pct": round(sell_pressure, 2) if sell_pressure is not None else None,
+                    "pressure_ratio": round(pressure_ratio, 3) if pressure_ratio is not None else None,
                     "pressure_signal": pressure_signal,
                     "orderbook": {
                         "ask_prices": [output2.get(f'futs_askp{i}', '') for i in range(1, 6)],
@@ -206,8 +202,11 @@ def get_domestic_futures_orderbook(symbol):
 def find_active_gold_contract():
     """Step 3: 주 계약(Active Contract) 자동 선택 + 매수/매도 압력 분석"""
     
-    # 1. 후보 월물 생성
+    # 1. Verified commodity futures only
     candidates = generate_gold_futures_candidates()
+    if not candidates:
+        print("⚠️ 검증된 금 상품선물 종목코드가 설정되지 않았습니다")
+        return None
     
     # 2. 각 후보의 데이터 수집
     candidate_data = []

@@ -56,6 +56,8 @@ const ActiveContractManager = () => {
         const result = await res.json();
         console.log('✅ Pressure 데이터 수신:', result);
         setPressureAnalysis(result);
+      } else if (res.status === 404) {
+        setPressureAnalysis(null);
       } else {
         const errorText = await res.text();
         console.error('❌ Pressure API 오류:', res.status, errorText);
@@ -71,13 +73,19 @@ const ActiveContractManager = () => {
       const res = await fetch(`${apiUrl}/api/active-contract`);
       const result = await res.json();
 
+      if (res.status === 404) {
+        setActiveContract(null);
+        setError('현재 조회 가능한 금선물 계약이 없습니다. 검증된 종목코드 설정이 필요합니다.');
+        return;
+      }
       if (!res.ok) {
         throw new Error(result.error || `HTTP error! status: ${res.status}`);
       }
-
+      setError(null);
       setActiveContract(result);
     } catch (e) {
       console.error('Active contract fetch error:', e);
+      setError(e instanceof Error ? e.message : String(e));
     }
   };
 
@@ -265,7 +273,7 @@ const ActiveContractManager = () => {
               ) : (
                 <div className="text-center py-4">
                   <div className="text-sm text-yellow-700 dark:text-yellow-300">
-                    매수/매도 압력 데이터를 불러오는 중...
+                    현재 매수/매도 압력 데이터가 없습니다.
                   </div>
                   <div className="text-xs text-yellow-600 dark:text-yellow-400 mt-1">
                     브라우저 개발자 도구(F12) → Console에서 오류 확인 가능
