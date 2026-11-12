@@ -74,36 +74,23 @@ def get_naver_gold_price():
         return None
 
 
-def get_domestic_gold_price():
-    """국내 금 현물 시세 조회 (KRW/g)"""
+def get_domestic_gold_quote():
+    """Get latest KRX official daily close with its actual trade date.
+
+    Returns None if data is unavailable; never returns an invented price.
+    """
     try:
-        # 국내 금시세 (chart API)
-        domestic_data = api_call(NAVER_GOLD_DOMESTIC_CHART_URL)
-        domestic_price = None
-        
-        if domestic_data and domestic_data.get('result') and domestic_data['result'].get('priceInfos'):
-            # result 안의 priceInfos에서 최신 데이터 가져오기
-            price_infos = domestic_data['result']['priceInfos']
-            if price_infos:
-                latest = price_infos[-1]
-                current_price = latest.get('currentPrice')
-                if current_price:
-                    # 쉼표 제거 후 float 변환
-                    domestic_price = float(str(current_price).replace(',', ''))
-        
-        # 백업: marketIndex API 사용
-        if not domestic_price:
-            domestic_backup = api_call(NAVER_GOLD_DOMESTIC_MARKET_URL)
-            if domestic_backup and domestic_backup.get('result'):
-                close_price = domestic_backup['result'].get('closePrice')
-                if close_price:
-                    domestic_price = float(str(close_price).replace(',', ''))
-        
-        return domestic_price
-        
-    except Exception as e:
-        print(f"국내 금 시세 조회 실패: {e}")
+        from providers.krx_gold import get_krx_gold_quote
+        return get_krx_gold_quote()
+    except Exception as exc:
+        print(f"KRX 국내 금 일별 종가 조회 실패: {exc}")
         return None
+
+
+def get_domestic_gold_price():
+    """Compatibility wrapper: KRX official daily close in KRW per gram."""
+    quote = get_domestic_gold_quote()
+    return quote["close_krw_per_g"] if quote else None
 
 
 def get_exchange_rate():

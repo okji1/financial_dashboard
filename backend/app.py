@@ -116,11 +116,15 @@ def get_gold_premium():
             "london_gold_usd": premium_data.get('international_price_usd_oz'),
             "london_gold_krw": premium_data.get('converted_intl_price_krw_g') * 31.1035,  # g당 가격을 oz당으로 변환
             "domestic_gold_price": premium_data.get('domestic_price_krw_g'),
+            "domestic_gold_source": premium_data.get("domestic_gold_source"),
+            "domestic_gold_date": premium_data.get("domestic_gold_date"),
+            "domestic_gold_is_realtime": False,
+            "price_alignment_warning": premium_data.get("price_alignment_warning"),
             "premium_percentage": premium_data.get('premium_percentage'),
             "premium_grade": premium_data.get('premium_grade'),
             "exchange_rate": premium_data.get('usd_krw_rate'),
             "active_contract": "현물금",  # 현물 거래이므로
-            "cached": False,  # 실시간 데이터
+            "cached": False,  # API 호출 시점의 결과이며 국내 금은 일별 종가
             "timestamp": premium_data.get('timestamp')
         }
         
