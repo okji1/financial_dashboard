@@ -3,15 +3,10 @@
 """
 
 import datetime
-import numpy as np
-import pandas as pd
+import importlib.util
 
-try:
-    import cot_reports
-    COT_AVAILABLE = True
-except ImportError:
-    COT_AVAILABLE = False
-    print("COT reports 라이브러리가 없습니다. COT 분석은 건너뜁니다.")
+# Presence detection must not import cot_reports/pandas on the HTTP analysis path.
+COT_AVAILABLE = importlib.util.find_spec('cot_reports') is not None
 
 
 def analyze_cot_positions():
@@ -91,6 +86,9 @@ def calculate_volatility(prices, window=20):
         if len(prices) < window:
             return None
         
+        # Only this optional historical-volatility calculation needs NumPy.
+        import numpy as np
+
         # 수익률 계산
         returns = np.diff(np.log(prices))
         
