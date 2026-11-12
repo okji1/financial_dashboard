@@ -108,7 +108,11 @@ class OrderbookIntegrityTests(unittest.TestCase):
             response = Mock(status_code=200)
             response.json.return_value = {'rt_cd': '0', 'output1': {}, 'output2': quantities}
             with patch('kis_auth.get_access_token', return_value='test-only'), patch('requests.get', return_value=response) as get:
-                self.assertIsNone(futures_api.get_domestic_futures_orderbook('TEST123'))
+                if not quantities:
+                    with self.assertRaises(futures_api.FuturesUnavailable):
+                        futures_api.get_domestic_futures_orderbook('TEST123')
+                else:
+                    self.assertIsNone(futures_api.get_domestic_futures_orderbook('TEST123'))
                 self.assertEqual(get.call_args.kwargs['timeout'], (3, 8))
 
     def test_valid_orderbook_computes_real_ratios(self):

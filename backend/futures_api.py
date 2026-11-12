@@ -3,8 +3,26 @@
 """
 
 import datetime
+import re
 from api_utils import get_kis_token, api_call
 from config import KIS_APP_KEY, KIS_APP_SECRET, KIS_FUTURES_URL
+
+
+class FuturesUnavailable(RuntimeError):
+    """Provider/authentication failure, distinct from an empty trading book."""
+
+
+def _safe_code(value):
+    return value if isinstance(value, str) and re.fullmatch(r'[A-Za-z0-9_]{1,24}', value) else 'unknown'
+
+
+def _numeric_state(value):
+    try:
+        import math
+        number = float(value)
+        return number if math.isfinite(number) else 'invalid'
+    except (TypeError, ValueError):
+        return 'missing' if value is None else 'invalid'
 
 
 def generate_gold_futures_candidates():
@@ -44,8 +62,7 @@ def get_domestic_futures_data(symbol):
 
     # 토큰이 없으면 절대 API 호출하지 않음
     if not access_token:
-        print("🚫 토큰 없음 - KIS API 호출 차단 (SMS 방지)")
-        return None
+        raise FuturesUnavailable("KIS authentication is unavailable")
     
     # 국내선물옵션 기본시세 조회 API (GitHub 공식 저장소 기준)
     headers = {
@@ -60,8 +77,7 @@ def get_domestic_futures_data(symbol):
     import os
     market_code = os.getenv("KIS_GOLD_FUTURES_MARKET_CODE", "CF")
     if market_code != "CF":
-        print("⚠️ 상품선물 시장구분 코드는 CF여야 합니다")
-        return None
+        raise FuturesUnavailable("KIS commodity market configuration is invalid")
     params = {
         "FID_COND_MRKT_DIV_CODE": market_code,
         "FID_INPUT_ISCD": symbol        # 종목코드 (예: 101W09)
@@ -73,7 +89,18 @@ def get_domestic_futures_data(symbol):
     print(f"🔗 KIS API 호출: {symbol} (토큰 포함)")
     data = api_call(url, headers=headers)
     
-    if data and data.get('rt_cd') == '0' and data.get('output1'):
+    if not isinstance(data, dict):
+        raise FuturesUnavailable("KIS quote request failed")
+    output = data.get('output1') or {}
+    if not isinstance(output, dict):
+        raise FuturesUnavailable("Invalid KIS quote response")
+    print(f"kis_quote_result symbol={symbol} rt_cd={_safe_code(data.get('rt_cd'))} "
+          f"msg_cd={_safe_code(data.get('msg_cd'))} price={_numeric_state(output.get('futs_prpr'))} "
+          f"volume={_numeric_state(output.get('acml_vol'))}")
+    if data.get('rt_cd') != '0':
+        raise FuturesUnavailable("KIS quote request rejected")
+    if output:
+
         output1 = data.get('output1', {})
         # 선물 데이터가 실제로 있는지 확인 (거래량 체크)
         try:
@@ -108,8 +135,7 @@ def get_domestic_futures_orderbook(symbol):
     access_token = get_access_token()
 
     if not access_token:
-        print("🚫 토큰 없음 - KIS 호가 API 호출 차단")
-        return None
+        raise FuturesUnavailable("KIS authentication is unavailable")
     
     try:
         # Excel에서 확인한 정확한 REST API 사용
@@ -202,15 +228,16 @@ def get_domestic_futures_orderbook(symbol):
                     "last_update_time": output2.get('aspr_acpt_hour', '')
                 }
             else:
-                print(f"⚠️ {symbol} API 오류: {data.get('msg1', 'Unknown error')}")
-                return None
+                print(f"kis_orderbook_rejected symbol={symbol} msg_cd={_safe_code(data.get('msg_cd'))}")
+                raise FuturesUnavailable("KIS orderbook request rejected")
         else:
-            print(f"⚠️ {symbol} HTTP 오류: {response.status_code}")
-            return None
+            raise FuturesUnavailable("KIS orderbook HTTP failure")
             
+    except FuturesUnavailable:
+        raise
     except Exception as e:
-        print(f"⚠️ {symbol} 호가 조회 실패: {type(e).__name__}")
-        return None
+        print(f"kis_orderbook_unavailable error={type(e).__name__}")
+        raise FuturesUnavailable("KIS orderbook response unavailable") from None
 
 
 def find_active_gold_contract():

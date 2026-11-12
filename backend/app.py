@@ -6,6 +6,7 @@ from flask import Flask, jsonify, request, g
 import os
 import logging
 from flask_cors import CORS
+from futures_api import FuturesUnavailable
 import threading
 import time
 import datetime
@@ -181,6 +182,8 @@ def get_active_contract():
 
         return jsonify(active_contract)
 
+    except FuturesUnavailable:
+        return jsonify({"error": "선물 데이터 제공 서버를 일시적으로 사용할 수 없습니다"}), 503
     except Exception as e:
         app.logger.warning("operation_failed error=%s", type(e).__name__)
         return jsonify({"error": "요청 처리 중 오류가 발생했습니다"}), 500
@@ -207,6 +210,8 @@ def update_active_contract():
             "contract": best_contract
         })
 
+    except FuturesUnavailable:
+        return jsonify({"error": "선물 데이터 제공 서버를 일시적으로 사용할 수 없습니다"}), 503
     except Exception as e:
         return jsonify({"error": "요청 처리 중 오류가 발생했습니다"}), 500
 
@@ -300,6 +305,8 @@ def get_orderbook_analysis():
 
         return jsonify(analysis_result)
 
+    except FuturesUnavailable:
+        return jsonify({"error": "선물 데이터 제공 서버를 일시적으로 사용할 수 없습니다"}), 503
     except Exception as e:
         return jsonify({"error": "요청 처리 중 오류가 발생했습니다"}), 500
 
@@ -335,6 +342,8 @@ def get_pressure_signal():
 
         return jsonify(signal_result)
 
+    except FuturesUnavailable:
+        return jsonify({"error": "선물 데이터 제공 서버를 일시적으로 사용할 수 없습니다"}), 503
     except Exception as e:
         return jsonify({"error": "요청 처리 중 오류가 발생했습니다"}), 500
 
