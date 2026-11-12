@@ -18,7 +18,7 @@ app = Flask(__name__)
 # CORS 설정: Vercel 프론트엔드 주소만 명시적으로 허용
 CORS(app, resources={r"/api/*": {"origins": [
     "https://financial-dashboard-six-chi.vercel.app",
-    r"https://financial-dashboard-[a-z0-9-]+-kim-juins-projects\\.vercel\\.app",
+    r"https://financial-dashboard-[a-z0-9-]+-kim-juins-projects\.vercel\.app",
 ]}})
 
 # 전역 변수
