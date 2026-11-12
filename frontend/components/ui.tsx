@@ -1,8 +1,9 @@
 import type { ReactNode } from 'react';
 import type { Remote } from '../lib/market-data';
 
-export type IconName = 'grid' | 'gold' | 'globe' | 'exchange' | 'ratio' | 'activity' | 'layers' | 'database' | 'refresh' | 'arrow' | 'chevron' | 'sun' | 'moon' | 'info' | 'clock';
+export type IconName = 'grid' | 'gold' | 'globe' | 'exchange' | 'ratio' | 'activity' | 'layers' | 'database' | 'refresh' | 'arrow' | 'chevron' | 'sun' | 'moon' | 'info' | 'clock' | 'bell';
 const paths: Record<IconName, ReactNode> = {
+  bell: <><path d="M5 17h14l-2-3V9a5 5 0 0 0-10 0v5Zm5 3h4"/><path d="M12 2v2"/></>,
   grid: <><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></>,
   gold: <><path d="m7 5-4 14h18L17 5Z"/><path d="M7 5h10M4.5 14h15M12 5v9"/></>,
   globe: <><circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3 12h18"/></>,

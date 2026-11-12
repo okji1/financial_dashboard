@@ -1,4 +1,5 @@
 'use client';
+import { useState } from 'react';
 import { MarketDataProvider, useMarketData, number, ageSeconds, kstTime } from '../lib/market-data';
 import GoldPremium from './GoldPremium';
 import InvestmentStrategy from './InvestmentStrategy';
@@ -6,6 +7,8 @@ import GoldAnalysis from './GoldAnalysis';
 import ActiveContractManager from './ActiveContractManager';
 import DataSources from './DataSources';
 import KRXGoldDaily from './KRXGoldDaily';
+import KRXHistoryChart from './KRXHistoryChart';
+import AlertCenter from './AlertCenter';
 import { ThemeSwitcher } from './ThemeSwitcher';
 import { Icon, type IconName } from './ui';
 
@@ -13,14 +16,17 @@ const links: { href: string; icon: IconName; label: string; index: string }[] = 
   { href: '#overview', icon: 'grid', label: '시장 개요', index: '01' },
   { href: '#analysis', icon: 'activity', label: '시장 분석', index: '02' },
   { href: '#futures', icon: 'gold', label: '선물 계약', index: '03' },
-  { href: '#sources', icon: 'database', label: '데이터 출처', index: '04' },
+  { href: '#history', icon: 'activity', label: '가격 추이', index: '04' },
+  { href: '#alerts', icon: 'bell', label: '알림함', index: '05' },
+  { href: '#sources', icon: 'database', label: '데이터 출처', index: '06' },
 ];
 function DashboardContent() {
+  const [unread,setUnread]=useState(0);
   const market = useMarketData();
   const { premium, now } = market;
   const data = premium.data;
   const age = ageSeconds(data?.timestamp, now);
-  const remotes = [premium, market.strategy, market.analysis, market.active, market.candidates, market.pressure, market.krx];
+  const remotes = [premium, market.strategy, market.analysis, market.active, market.candidates, market.pressure, market.krx, market.systemAlerts];
   const loading = remotes.some(item => item.loading);
   const errors = remotes.some(item => item.error && item.error.status !== 404);
   const fresh = data && age !== null && age <= 90;
@@ -38,7 +44,7 @@ function DashboardContent() {
       <div className="sidebar-note"><span className="tiny-label">THE PRECIOUS PERSPECTIVE</span><div className="sidebar-rule"/><p>가격 너머의 맥락을<br/>더 선명하게.</p><span>국내외 금 시장 데이터 워크스페이스</span></div>
       <div className="sidebar-footer"><Icon name="globe"/><span>KRW · USD</span><span className="version-label">GOLD / 01</span></div>
     </aside>
-    <div className="workspace"><header className="topbar"><div className="breadcrumb"><span className="mobile-brand">Au</span><span>Financial Dashboard</span><span className="breadcrumb-divider">/</span><strong>Market overview</strong></div><div className="topbar-actions"><span className="topbar-time"><Icon name="clock"/>{now === null ? '한국시간' : kstTime(now)}<small>KST</small></span><ThemeSwitcher/></div></header>
+    <div className="workspace"><header className="topbar"><div className="breadcrumb"><span className="mobile-brand">Au</span><span>Financial Dashboard</span><span className="breadcrumb-divider">/</span><strong>Market overview</strong></div><div className="topbar-actions"><span className="topbar-time"><Icon name="clock"/>{now === null ? '한국시간' : kstTime(now)}<small>KST</small></span><a className="notification-link" href="#alerts" aria-label={`알림함, 읽지 않은 알림 ${unread}건`}><Icon name="bell"/>{unread>0&&<span>{unread}</span>}</a><ThemeSwitcher/></div></header>
       <main className="dashboard-main"><section className="hero" id="overview"><div><p className="eyebrow">GOLD MARKET OVERVIEW</p><h1>금 시장, 한눈에.</h1><p className="hero-description">시세와 환율, 국내외 가격 차이를 함께 확인하세요.</p></div><div className="hero-actions"><span className={`connection-status ${errors ? 'is-warning' : fresh ? 'is-connected' : ''}`} role="status"><i/>{status}</span><button className="button button-primary" onClick={market.refresh} disabled={loading}><Icon name="refresh" className={loading ? 'spinning' : ''}/>{loading ? '확인 중' : '새로 고침'}</button></div></section>
       <nav className="mobile-nav" aria-label="모바일 메뉴">{links.map(link => <a key={link.href} href={link.href}><Icon name={link.icon}/>{link.label}</a>)}</nav>
       <div className="overview-meta"><span><span className="status-dot"/>현재 제공되는 시세를 30초마다 확인합니다</span><span>{data ? `시세 묶음 수집 ${kstTime(data.timestamp)} KST` : '시세 수집 시각 확인 중'}</span></div>
@@ -49,6 +55,8 @@ function DashboardContent() {
       <GoldAnalysis/>
       <ActiveContractManager/>
       <KRXGoldDaily/>
+      <KRXHistoryChart/>
+      <AlertCenter onUnreadChange={setUnread}/>
       <DataSources/>
       <footer className="dashboard-footer"><span>GOLD DESK <i/> Financial Dashboard</span><p>수집 시세를 바탕으로 한 참고 정보입니다. 실제 거래 전 공급자의 기준 시각과 체결 가능 가격을 확인하세요.</p><a href="#overview">맨 위로<Icon name="arrow"/></a></footer>
       </main>

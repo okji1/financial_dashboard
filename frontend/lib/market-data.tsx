@@ -36,6 +36,12 @@ export interface KRXGoldDaily {
   source: 'KRX_OPEN_API'; trade_date: string; fetched_at: string;
   refresh_state: 'ok' | 'delayed'; items: KRXGoldItem[];
 }
+export interface KRXHistory {
+  source: 'KRX_OPEN_API'; symbol: string; days: number; checked_days: number; total_days: number;
+  items: (KRXGoldItem & { trade_date: string })[];
+}
+export interface SystemEvent { id: string; source: string; status: 'error' | 'recovered'; occurred_at: string; message: string }
+export interface SystemAlerts { events: SystemEvent[]; snapshot_age_seconds: number | null; checked_at: string }
 export interface Remote<T> { data: T | null; error: ApiError | null; loading: boolean; checkedAt: number | null }
 const initial = <T,>(): Remote<T> => ({ data: null, error: null, loading: true, checkedAt: null });
 
@@ -58,6 +64,7 @@ function useMarketController() {
   const [candidates, setCandidates] = useState<Remote<{ candidates: Candidate[]; count: number }>>(initial);
   const [pressure, setPressure] = useState<Remote<PressureData>>(initial);
   const [krx, setKRX] = useState<Remote<KRXGoldDaily>>(initial);
+  const [systemAlerts, setSystemAlerts] = useState<Remote<SystemAlerts>>(initial);
   const [now, setNow] = useState<number | null>(null);
   const [updating, setUpdating] = useState(false);
   const [pendingUpdate, setPendingUpdate] = useState<string | null>(null);
@@ -73,6 +80,7 @@ function useMarketController() {
         load('/api/active-contract', setActive, value => setPendingUpdate(previous => previous === value.updated_at ? previous : null)),
         load('/api/pressure-signal', setPressure),
         load('/api/krx-gold-daily', setKRX),
+        load('/api/system-alerts', setSystemAlerts),
       ]);
     } finally { inFlight.current = false; }
   }, []);
@@ -95,7 +103,7 @@ function useMarketController() {
       setUpdateError(error instanceof Error ? error.message : '갱신 요청을 처리하지 못했습니다.');
     } finally { setUpdating(false); }
   };
-  return { premium, strategy, analysis, active, candidates, pressure, krx, now, refresh, requestUpdate, updating, pendingUpdate, updateError };
+  return { premium, strategy, analysis, active, candidates, pressure, krx, systemAlerts, now, refresh, requestUpdate, updating, pendingUpdate, updateError };
 }
 const Context = createContext<ReturnType<typeof useMarketController> | null>(null);
 export function MarketDataProvider({ children }: { children: ReactNode }) {

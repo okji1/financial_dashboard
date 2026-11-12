@@ -43,13 +43,17 @@ class SharedStore:
         self._cache = None
         self._cache_until = 0.0
         self._cache_lock = threading.Lock()
+        self._read_models = {}
+        self._read_models_lock = threading.Lock()
+        self._read_model_locks = {}
         if not self.url.startswith('https://') or not self.key:
             raise StoreUnavailable('Backend shared-store configuration missing')
 
     def _request(self, method, path, **kwargs):
         try:
+            extra_headers = kwargs.pop('headers', {})
             response = requests.request(method, self.url + '/rest/v1/' + path,
-                headers={'apikey': self.key, 'Authorization': 'Bearer '+self.key},
+                headers={**extra_headers, 'apikey': self.key, 'Authorization': 'Bearer '+self.key},
                 timeout=(3, 8), **kwargs)
             if not response.ok:
                 raise StoreUnavailable(f'Shared store HTTP {response.status_code}')
@@ -101,6 +105,18 @@ class SharedStore:
     def request_refresh(self):
         if self._request('POST', 'rpc/dashboard_request_refresh', json={}) is not True:
             raise StoreUnavailable('Collector not initialized')
+
+    def cached_read(self, key, loader):
+        # Small finite keyspace (two products/two ranges + operational inbox).
+        with self._read_models_lock:
+            key_lock = self._read_model_locks.setdefault(key,threading.Lock())
+        with key_lock:
+            cached = self._read_models.get(key)
+            if cached and time.monotonic() < cached[0]:
+                return copy.deepcopy(cached[1])
+            value = loader()
+            self._read_models[key] = (time.monotonic()+15, copy.deepcopy(value))
+            return value
 
     def token_status(self):
         # Metadata only. Web workers do not read bearer-token values or issue tokens.

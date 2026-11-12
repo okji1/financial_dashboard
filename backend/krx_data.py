@@ -21,6 +21,18 @@ class KRXUnavailable(RuntimeError):
     pass
 
 
+def fetch_daily(key, day):
+    """One authenticated request, shared by live checks and archive backfills."""
+    try:
+        response = requests.get(URL, headers={'AUTH_KEY': key},
+            params={'basDd': day.strftime('%Y%m%d')}, timeout=(3, 6), allow_redirects=False)
+        if response.status_code != 200:
+            raise KRXUnavailable('KRX HTTP error')
+        return parse_daily(response.json(), day.strftime('%Y%m%d'))
+    except (requests.RequestException, ValueError):
+        raise KRXUnavailable('KRX request failed') from None
+
+
 def numeric(value, *, integer=False, optional=False, nonnegative=False):
     if optional and value in (None, '', '-'):
         return None
@@ -90,14 +102,7 @@ class KRXDailyCache:
                     if day.weekday() >= 5:
                         continue
                     renew()
-                    try:
-                        response = requests.get(URL, headers={'AUTH_KEY': self.key},
-                            params={'basDd': day.strftime('%Y%m%d')}, timeout=(3, 6), allow_redirects=False)
-                        if response.status_code != 200:
-                            raise KRXUnavailable('KRX HTTP error')
-                        items = parse_daily(response.json(), day.strftime('%Y%m%d'))
-                    except (requests.RequestException, ValueError):
-                        raise KRXUnavailable('KRX request failed') from None
+                    items = fetch_daily(self.key, day)
                     if items:
                         self.data = {'source': 'KRX_OPEN_API', 'trade_date': day.isoformat(),
                             'fetched_at': utc_now().isoformat(), 'items': items}

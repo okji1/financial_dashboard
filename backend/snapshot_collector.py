@@ -15,6 +15,7 @@ from gold_master import load_gold_contracts, MAX_MASTER_BYTES
 from futures_api import get_domestic_futures_data, get_domestic_futures_orderbook, FuturesUnavailable
 from shared_store import SharedStore, LeaseLost, StoreUnavailable, section, utc_now
 from krx_data import KRXDailyCache
+from history_alerts import HistoryAlertsStore, ArchiveWorker, monitor_states
 
 logger = logging.getLogger(__name__)
 MASTER_URL = 'https://new.real.download.dws.co.kr/common/master/fo_com_code.mst.zip'
@@ -69,6 +70,13 @@ class SnapshotCollector:
         self.owner = owner or str(uuid.uuid4())
         self.krx = krx if krx is not None else KRXDailyCache()
 
+    def after_publish(self, payload):
+        # Persistence failures must not discard an already published live quote.
+        try:
+            HistoryAlertsStore(self.store).monitor(self.owner, monitor_states(payload))
+        except StoreUnavailable as error:
+            logger.warning('monitor_write_failed error=%s', type(error).__name__)
+
     def renew(self):
         return self.store.claim(self.owner)
 
@@ -84,6 +92,7 @@ class SnapshotCollector:
             candidates = self.master.get(force=force_master)
         except StoreUnavailable:
             self.store.publish(self.owner, str(uuid.uuid4()), payload)
+            self.after_publish(payload)
             return payload
         payload['candidates'] = section({'candidates': candidates, 'count': len(candidates)})
         prices, failed = [], False
@@ -124,6 +133,7 @@ class SnapshotCollector:
         # Guarded atomic bundle publication prevents cross-generation books/signals.
         self.renew()
         self.store.publish(self.owner, str(uuid.uuid4()), payload)
+        self.after_publish(payload)
         logger.info('snapshot_published gold=%s active=%s candidate_count=%d',
                     payload['gold']['state'], payload['active_contract']['state'], len(candidates))
         return payload
@@ -139,6 +149,7 @@ def main():
     store = SharedStore()
     with tempfile.TemporaryDirectory(prefix='dashboard-master-') as directory:
         collector = SnapshotCollector(store, MasterCache(directory))
+        archive = ArchiveWorker(HistoryAlertsStore(store), os.getenv('KRX_API_KEY', ''))
         # Token issuance is permitted only while this process owns the shared lease.
         from kis_auth import set_issuance_guard
         set_issuance_guard(collector.renew)
@@ -152,13 +163,18 @@ def main():
                     force = seen_request is not None and requested != seen_request
                     if time.monotonic() >= next_cycle or force:
                         cycle_started = time.monotonic()
-                        collector.collect_once(force_master=force)
+                        payload = collector.collect_once(force_master=force)
                         seen_request = requested
                         next_cycle = cycle_started + 30
+                        archive.run_once(payload.get('krx_daily', {}), collector.renew)
                 except LeaseLost:
                     logger.info('collector_waiting_for_lease')
                 except Exception as error:
                     logger.warning('collector_cycle_failed error=%s', type(error).__name__)
+                    try:
+                        HistoryAlertsStore(store).monitor(collector.owner, {'collector':'error'})
+                    except StoreUnavailable:
+                        pass
                 stop.wait(3)
         finally:
             try:

@@ -20,7 +20,7 @@ export async function fetchApi<T>(path: string, options: RequestInit = {}): Prom
       throw new ApiError(message, response.status);
     }
     if (!result || typeof result !== 'object') throw new ApiError('서버 응답 형식 오류');
-    validatePayload(path, result);
+    validatePayload(path.split('?')[0], result);
     return result as T;
   } catch (error) {
     if (error instanceof ApiError) throw error;
@@ -48,5 +48,14 @@ function validatePayload(path: string, value: unknown) {
       && ['04020000', '04020100'].includes(String(item.symbol)) && typeof item.name === 'string'
       && numbers(item, ['volume_grams', 'trading_value_krw']) && Number(item.volume_grams) >= 0 && Number(item.trading_value_krw) >= 0
       && ['close','change','change_rate','open','high','low'].every(k => item[k] === null || (typeof item[k] === 'number' && Number.isFinite(item[k]))));
+  if (path === '/api/krx-gold-history') valid = value.source === 'KRX_OPEN_API'
+    && ['04020000','04020100'].includes(String(value.symbol)) && [30,90].includes(Number(value.days))
+    && numbers(value,['checked_days','total_days']) && Array.isArray(value.items) && value.items.every(item => object(item)
+      && item.symbol === value.symbol && typeof item.trade_date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(item.trade_date)
+      && numbers(item,['volume_grams','trading_value_krw']) && (item.close === null || (typeof item.close === 'number' && Number.isFinite(item.close) && item.close > 0)));
+  if (path === '/api/system-alerts') valid = typeof value.checked_at === 'string' && Number.isFinite(Date.parse(value.checked_at))
+    && (value.snapshot_age_seconds === null || numbers(value,['snapshot_age_seconds']))
+    && Array.isArray(value.events) && value.events.every(item => object(item) && ['id','source','occurred_at','message'].every(k => typeof item[k] === 'string')
+      && ['error','recovered'].includes(String(item.status)) && Number.isFinite(Date.parse(String(item.occurred_at))));
   if (!valid) throw new ApiError('서버 응답 데이터 형식이 올바르지 않습니다.');
 }

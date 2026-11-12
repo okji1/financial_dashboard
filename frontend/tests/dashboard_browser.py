@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+from urllib.parse import urlsplit
 from playwright.sync_api import sync_playwright, expect, Error
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -30,7 +31,7 @@ with sync_playwright() as p:
     mode={'gold':'ok','krx':'ok'};pending=[]
     clock={'now':datetime.datetime.now(datetime.timezone.utc)}
     def route_api(route):
-        path=route.request.url.rsplit('/',1)[-1];status=200;payload=copy.deepcopy(fixtures.get(path))
+        path=urlsplit(route.request.url).path.rsplit('/',1)[-1];status=200;payload=copy.deepcopy(fixtures.get(path))
         if isinstance(payload,dict) and path in ['gold-premium','gold-analysis']:
             payload['timestamp']=clock['now'].isoformat()
         if path=='gold-premium':
@@ -51,6 +52,8 @@ with sync_playwright() as p:
                     'open':102000,'high':102000,'low':100000,'volume_grams':100,'trading_value_krw':10100000}]}
             if mode['krx']=='error':status,payload=503,{'error':'KRX unavailable'}
             elif mode['krx']=='malformed':payload['items'][0]['volume_grams']=-1
+        elif path=='system-alerts':payload={'events':[],'snapshot_age_seconds':1,'checked_at':clock['now'].isoformat()}
+        elif path=='krx-gold-history':payload={'source':'KRX_OPEN_API','symbol':'04020000','days':90,'checked_days':0,'total_days':64,'items':[]}
         route.fulfill(status=status,content_type='application/json',body=json.dumps(payload),headers={'Access-Control-Allow-Origin':'*'})
     def settled():
         # A visible error can precede the other five responses. Finish that batch

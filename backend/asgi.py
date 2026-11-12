@@ -7,7 +7,9 @@ from fastapi import Depends, FastAPI, Query, Request
 from fastapi.exceptions import RequestValidationError, ResponseValidationError
 from fastapi.responses import JSONResponse
 from starlette.middleware.cors import CORSMiddleware
-from api_models import Premium, Strategy, Candidates, ActiveContract, Pressure, Analysis, Orderbook, Update, TokenStatus, KRXGoldDaily
+from api_models import Premium, Strategy, Candidates, ActiveContract, Pressure, Analysis, Orderbook, Update, TokenStatus, KRXGoldDaily, KRXHistory, SystemAlerts
+from history_alerts import HistoryAlertsStore
+from typing import Literal
 from dashboard_service import DashboardService, ServiceError
 from shared_store import SharedStore, StoreUnavailable, utc_now
 
@@ -98,6 +100,18 @@ def candidates(service=Depends(get_service)):
 @api.get('/api/krx-gold-daily', response_model=KRXGoldDaily)
 def krx_daily(service=Depends(get_service)):
     return service.krx_daily()
+
+
+@api.get('/api/krx-gold-history', response_model=KRXHistory)
+def krx_history(symbol: Literal['04020000','04020100'] = '04020000', days: Annotated[int, Query(ge=30,le=90)] = 90, store=Depends(get_store)):
+    if days not in (30,90):
+        raise ServiceError(422,'기간은 30일 또는 90일이어야 합니다')
+    return store.cached_read(('history',symbol,days),lambda: HistoryAlertsStore(store).history(symbol, days))
+
+
+@api.get('/api/system-alerts', response_model=SystemAlerts)
+def system_alerts(store=Depends(get_store)):
+    return store.cached_read(('system-alerts',),lambda: HistoryAlertsStore(store).alerts())
 
 
 @api.get('/api/active-contract', response_model=ActiveContract)

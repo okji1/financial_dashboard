@@ -142,3 +142,30 @@ class KRXGoldDaily(BaseModel):
     fetched_at: datetime
     refresh_state: Literal['ok', 'delayed']
     items: Annotated[list[KRXGoldItem], Field(min_length=1)]
+
+
+class KRXHistoryItem(KRXGoldItem):
+    trade_date: date
+
+
+class KRXHistory(BaseModel):
+    source: Literal['KRX_OPEN_API']
+    symbol: Literal['04020000','04020100']
+    days: Literal[30,90]
+    checked_days: int
+    total_days: int
+    items: list[KRXHistoryItem]
+
+
+class SystemEvent(BaseModel):
+    id: str
+    source: Literal['gold','futures','krx','collector']
+    status: Literal['error','recovered']
+    occurred_at: datetime
+    message: str
+
+
+class SystemAlerts(BaseModel):
+    events: list[SystemEvent]
+    snapshot_age_seconds: Number | None
+    checked_at: datetime
