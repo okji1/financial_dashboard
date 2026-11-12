@@ -1,336 +1,36 @@
-'use client'
-
-import { useEffect, useState } from 'react';
+'use client';
 import Card from './Card';
-import { ApiError, fetchApi } from '../lib/api';
+import { useMarketData, number, kstTime, ageSeconds } from '../lib/market-data';
+import { Badge, Icon, RemoteMessage } from './ui';
 
-interface ContractCandidate {
-  symbol: string;
-  year: number | null;
-  month: number | null;
-  description: string;
-}
-
-interface ActiveContract {
-  symbol: string;
-  description: string;
-  current_price: number;
-  volume: number;
-  open_interest: number;
-  expiry_year: number | null;
-  expiry_month: number | null;
-  updated_at: string;
-  buy_pressure?: number;
-  sell_pressure?: number;
-  pressure_signal?: string;
-  best_bid?: number;
-  best_ask?: number;
-  spread?: number;
-}
-
-interface PressureAnalysis {
-  symbol: string;
-  pressure_signal: string;
-  buy_pressure: number;
-  sell_pressure: number;
-  recommendation: string;
-  timestamp: string;
-}
-
-const ActiveContractManager = () => {
-  const [activeContract, setActiveContract] = useState<ActiveContract | null>(null);
-  const [candidates, setCandidates] = useState<ContractCandidate[]>([]);
-  const [pressureAnalysis, setPressureAnalysis] = useState<PressureAnalysis | null>(null);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [updating, setUpdating] = useState<boolean>(false);
-  const [pendingUpdate, setPendingUpdate] = useState<string | null>(null);
-  const [candidateError, setCandidateError] = useState<string | null>(null);
-  const [empty, setEmpty] = useState(false);
-  const [pressureError, setPressureError] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const fetchPressureAnalysis = async () => {
-    try {
-      const result = await fetchApi<PressureAnalysis>('/api/pressure-signal');
-      setPressureAnalysis(result);
-      setPressureError(null);
-    } catch (e) {
-      setPressureAnalysis(null);
-      setPressureError(e instanceof ApiError && e.status === 404 ? null : String(e));
-    }
-  };
-
-  const fetchActiveContract = async () => {
-    try {
-      const result = await fetchApi<ActiveContract>('/api/active-contract');
-      setEmpty(false);
-      setError(null);
-      setActiveContract(result);
-      setPendingUpdate(current => current === result.updated_at ? current : null);
-    } catch (e) {
-      setActiveContract(null);
-      setPressureAnalysis(null);
-      if (e instanceof ApiError && e.status === 404) { setEmpty(true); setPendingUpdate(null); setError(null); return; }
-      setEmpty(false);
-      setError(e instanceof Error ? e.message : String(e));
-    }
-  };
-
-  const fetchCandidates = async () => {
-    try {
-      const result = await fetchApi<{ candidates: ContractCandidate[] }>('/api/futures-candidates');
-      setCandidates(result.candidates);
-      setCandidateError(null);
-    } catch (e) {
-      setCandidates([]);
-      setCandidateError(e instanceof Error ? e.message : String(e));
-    }
-  };
-
-  const updateActiveContract = async () => {
-    setUpdating(true);
-    try {
-      const result = await fetchApi<{ contract: ActiveContract; refresh_requested?: boolean }>('/api/update-active-contract', { method: 'POST' });
-      setPressureAnalysis(null);
-      setActiveContract(result.contract);
-      setPendingUpdate(result.refresh_requested ? result.contract.updated_at : null);
-      setError(null);
-    } catch (e) {
-      if (e instanceof Error) {
-        setError(e.message);
-      } else {
-        setError(String(e));
-      }
-    } finally {
-      setUpdating(false);
-    }
-  };
-
-  useEffect(() => {
-    const fetchData = async () => {
-      setLoading(true);
-      await Promise.all([
-        fetchActiveContract(), 
-        fetchCandidates(),
-        fetchPressureAnalysis()
-      ]);
-      setLoading(false);
-    };
-
-    fetchData();
-    
-    // 공유 시세 갱신을 반영하도록 30초마다 조회
-    const interval = setInterval(() => {
-      fetchActiveContract();
-      fetchPressureAnalysis();
-    }, 30 * 1000);
-    return () => clearInterval(interval);
-  }, []);
-
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleString('ko-KR');
-  };
-
-  const isContractExpiringSoon = (year: number | null, month: number | null) => {
-    if (!year || !month) return false;
-    const now = new Date();
-    const expiryDate = new Date(year, month - 1, 1);
-    const daysUntilExpiry = Math.ceil((expiryDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-    return daysUntilExpiry <= 30; // 30일 이내 만료
-  };
-
-  const renderContent = () => {
-    if (loading) {
-      return <p className="text-gray-500 dark:text-gray-400">계약 정보 로딩 중...</p>;
-    }
-
-    return (
-      <div className="space-y-4">
-        {pendingUpdate && <p role="status" className="text-sm text-blue-600 dark:text-blue-400">갱신을 요청했습니다. 최신 결과를 확인하는 중입니다.</p>}
-        {/* 활성 계약 정보 */}
-        {activeContract && (
-          <div className="p-4 bg-blue-50 dark:bg-blue-900 rounded-lg">
-            <div className="flex justify-between items-start mb-3">
-              <h3 className="font-semibold text-blue-800 dark:text-blue-200">현재 활성 계약</h3>
-              <div className="flex items-center space-x-2">
-                {isContractExpiringSoon(activeContract.expiry_year, activeContract.expiry_month) && (
-                  <span className="px-2 py-1 text-xs bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200 rounded">
-                    만료임박
-                  </span>
-                )}
-                <button
-                  onClick={updateActiveContract}
-                  disabled={updating}
-                  className="px-3 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
-                >
-                  {updating ? '요청 중...' : '갱신 요청'}
-                </button>
-              </div>
-            </div>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <div className="flex justify-between">
-                  <span className="text-sm text-blue-700 dark:text-blue-300">계약 코드:</span>
-                  <strong className="text-blue-800 dark:text-blue-200">{activeContract.symbol}</strong>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm text-blue-700 dark:text-blue-300">만료일:</span>
-                  <strong className="text-blue-800 dark:text-blue-200">
-                    {activeContract.expiry_year && activeContract.expiry_month ? `${activeContract.expiry_year}년 ${activeContract.expiry_month}월` : '미확인'}
-                  </strong>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm text-blue-700 dark:text-blue-300">현재가:</span>
-                  <strong className="text-blue-800 dark:text-blue-200">
-                    ₩{activeContract.current_price?.toLocaleString()}
-                  </strong>
-                </div>
-              </div>
-              
-              <div className="space-y-2">
-                <div className="flex justify-between">
-                  <span className="text-sm text-blue-700 dark:text-blue-300">거래량:</span>
-                  <strong className="text-blue-800 dark:text-blue-200">
-                    {activeContract.volume?.toLocaleString()}
-                  </strong>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm text-blue-700 dark:text-blue-300">미결제약정:</span>
-                  <strong className="text-blue-800 dark:text-blue-200">
-                    {activeContract.open_interest?.toLocaleString()}
-                  </strong>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm text-blue-700 dark:text-blue-300">업데이트:</span>
-                  <span className="text-xs text-blue-600 dark:text-blue-400">
-                    {formatDate(activeContract.updated_at)}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* 매수/매도 압력 분석 - 실제 API 데이터 사용 */}
-            <div className="mt-4 p-3 bg-yellow-50 dark:bg-yellow-900 rounded-lg">
-              <div className="flex justify-between items-center mb-2">
-                <h4 className="font-semibold text-yellow-800 dark:text-yellow-200">매수/매도 호가 압력 분석</h4>
-                <button
-                  onClick={fetchPressureAnalysis}
-                  className="px-2 py-1 text-xs bg-yellow-600 text-white rounded hover:bg-yellow-700"
-                >
-                  새로고침
-                </button>
-              </div>
-              
-              {pressureAnalysis ? (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                  <div className="text-center">
-                    <div className="text-xs text-yellow-700 dark:text-yellow-300">매수 압력</div>
-                    <div className="text-lg font-bold text-green-600 dark:text-green-400">
-                      {pressureAnalysis.buy_pressure?.toFixed(1) ?? 'N/A'}%
-                    </div>
-                  </div>
-                  <div className="text-center">
-                    <div className="text-xs text-yellow-700 dark:text-yellow-300">매도 압력</div>
-                    <div className="text-lg font-bold text-red-600 dark:text-red-400">
-                      {pressureAnalysis.sell_pressure?.toFixed(1) ?? 'N/A'}%
-                    </div>
-                  </div>
-                  <div className="text-center">
-                    <div className="text-xs text-yellow-700 dark:text-yellow-300">시장 신호</div>
-                    <div className={`text-sm font-bold ${
-                      pressureAnalysis.pressure_signal?.includes('매수') ? 'text-green-600 dark:text-green-400' :
-                      pressureAnalysis.pressure_signal?.includes('매도') ? 'text-red-600 dark:text-red-400' :
-                      'text-gray-600 dark:text-gray-400'
-                    }`}>
-                      {pressureAnalysis.pressure_signal}
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <div className="text-center py-4">
-                  <div className="text-sm text-yellow-700 dark:text-yellow-300">
-                    {pressureError || '현재 매수/매도 압력 데이터가 없습니다.'}
-                  </div>
-                  <div className="text-xs text-yellow-600 dark:text-yellow-400 mt-1">
-                    데이터를 확인한 뒤 다시 시도해 주세요.
-                  </div>
-                </div>
-              )}
-              
-              {pressureAnalysis && (
-                <div className="mt-3 pt-3 border-t border-yellow-200 dark:border-yellow-700">
-                  <div className="flex justify-between items-center text-xs">
-                    <span className="text-yellow-700 dark:text-yellow-300">
-                      종목: {pressureAnalysis.symbol}
-                    </span>
-                    <span className="text-yellow-700 dark:text-yellow-300">
-                      {pressureAnalysis.recommendation}
-                    </span>
-                    <span className="text-yellow-700 dark:text-yellow-300">
-                      업데이트: {pressureAnalysis.timestamp}
-                    </span>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {empty && <p role="status">현재 조회 가능한 금선물 계약이 없습니다.</p>}
-        {/* 에러 메시지 */}
-        {error && (
-          <div className="p-3 bg-red-50 dark:bg-red-900 text-red-700 dark:text-red-200 rounded-lg text-sm">
-            {error}
-          </div>
-        )}
-
-        {candidateError && <p role="alert">후보 목록: {candidateError}</p>}
-        {/* 후보 계약들 */}
-        {candidates.length > 0 && (
-          <div className="space-y-3">
-            <h3 className="font-semibold text-gray-700 dark:text-gray-300">선물 계약 후보</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {candidates.map((candidate, index) => (
-                <div
-                  key={index}
-                  className={`p-3 rounded-lg border ${
-                    candidate.symbol === activeContract?.symbol
-                      ? 'bg-green-50 border-green-200 dark:bg-green-900 dark:border-green-700'
-                      : 'bg-gray-50 border-gray-200 dark:bg-gray-800 dark:border-gray-700'
-                  }`}
-                >
-                  <div className="flex justify-between items-center">
-                    <div>
-                      <div className="font-medium">{candidate.symbol}</div>
-                      <div className="text-sm text-gray-600 dark:text-gray-400">
-                        {candidate.description}
-                      </div>
-                    </div>
-                    {candidate.symbol === activeContract?.symbol && (
-                      <span className="px-2 py-1 text-xs bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200 rounded">
-                        활성
-                      </span>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        <div className="text-xs text-gray-500 dark:text-gray-400 text-center">
-          활성 계약은 거래량을 기준으로 자동 선택됩니다
-        </div>
+export default function ActiveContractManager() {
+  const { active, pressure, candidates, requestUpdate, updating, pendingUpdate, updateError, now } = useMarketData();
+  const contract = active.data;
+  const age = ageSeconds(contract?.updated_at, now);
+  const book = pressure.data && pressure.data.symbol === contract?.symbol ? pressure.data : null;
+  const fresh = age !== null && age <= 90;
+  return <Card title="금선물 계약과 수급" eyebrow="FUTURES DESK" icon="gold" id="futures"
+    action={<button className="button button-small" onClick={requestUpdate} disabled={updating || !contract}><Icon name="refresh" className={updating ? 'spinning' : ''}/>{updating ? '요청 중' : '갱신 요청'}</button>}>
+    {pendingUpdate && <p className="request-notice" role="status">갱신을 요청했습니다. 최신 결과를 확인하는 중입니다.</p>}
+    {updateError && <p className="request-notice warning-text" role="alert">{updateError}</p>}
+    {!contract ? <RemoteMessage remote={active} empty="현재 조회 가능한 금선물 계약이 없습니다."/> : <div className="futures-grid">
+      <div className="contract-overview"><div className="contract-heading"><span className="contract-symbol">{contract.symbol}</span><Badge tone="gold">활성 계약</Badge></div><p className="muted text-sm">{contract.description}</p>
+        <div className="contract-price">{number(contract.current_price)}<span>원</span></div>
+        <dl className="contract-facts"><div><dt>누적 거래량</dt><dd>{number(contract.volume)}<small>계약</small></dd></div><div><dt>미결제약정</dt><dd>{number(contract.open_interest)}<small>{contract.open_interest == null ? '미제공' : '계약'}</small></dd></div><div><dt>계약 월</dt><dd>{contract.expiry_year && contract.expiry_month ? `${contract.expiry_year}.${String(contract.expiry_month).padStart(2, '0')}` : '미확인'}</dd></div></dl>
+        <div className="source-caption"><Icon name="clock"/>수집 {kstTime(contract.updated_at)} KST{!fresh && <span className="warning-text"> · 시각 재확인 필요</span>}</div>
       </div>
-    );
-  };
-
-  return (
-    <Card title="선물 계약 관리">
-      {renderContent()}
-    </Card>
-  );
-};
-
-export default ActiveContractManager;
+      <div className="pressure-overview"><div className="pressure-heading"><h3>매수·매도 호가 압력</h3><Badge>{book && fresh ? book.pressure_signal : '정보 확인'}</Badge></div>
+        {!book || !fresh ? <RemoteMessage remote={pressure} empty="현재 매수·매도 압력 데이터가 없습니다."/> : <>
+          <div className="pressure-numbers"><div><span><i className="legend-dot buy-dot"/>매수 잔량 비중</span><strong className="buy-text">{number(book.buy_pressure, 1)}<small>%</small></strong></div><div><span><i className="legend-dot sell-dot"/>매도 잔량 비중</span><strong className="sell-text">{number(book.sell_pressure, 1)}<small>%</small></strong></div></div>
+          <div className="pressure-track" role="img" aria-label={`매수 잔량 ${book.buy_pressure}%, 매도 잔량 ${book.sell_pressure}%`}><span style={{ width: `${book.buy_pressure}%` }}/><span style={{ width: `${book.sell_pressure}%` }}/></div>
+          <p className="small-note">조회된 호가 잔량의 비율입니다. 실제 체결량이나 가격 상승 확률을 뜻하지 않습니다.</p>
+          <div className="source-caption">{book.timestamp.includes('T') ? '호가 응답 수집 시각' : '공급자 호가 시각'} · {book.timestamp.includes('T') ? kstTime(book.timestamp) + ' KST' : book.timestamp} {!book.timestamp.includes('T') && <span>기준일 미제공</span>}</div>
+        </>}
+      </div>
+    </div>}
+    <details className="contract-details"><summary><span>계약 후보 <strong>{candidates.data?.count ?? '—'}</strong></span><span className="details-hint">자세히 보기<Icon name="chevron"/></span></summary>
+      {candidates.data ? candidates.data.candidates.length ? <div className="candidate-list">{candidates.data.candidates.map(candidate => <div key={candidate.symbol} className={candidate.symbol === contract?.symbol ? 'candidate is-active' : 'candidate'}><span><strong>{candidate.symbol}</strong><small>{candidate.description}</small></span>{candidate.symbol === contract?.symbol ? <Badge tone="gold">활성</Badge> : <span className="muted text-sm">{candidate.year && candidate.month ? `${candidate.year}.${String(candidate.month).padStart(2, '0')}` : '계약 월 미제공'}</span>}</div>)}</div> : <p className="small-note">확인된 금선물 후보가 없습니다.</p> : <RemoteMessage remote={candidates}/>}
+      <p className="small-note">한국투자증권의 검증된 상품선물 후보 중 조회된 누적 거래량을 기준으로 선택합니다. 정확한 만기일은 별도 확인이 필요합니다.</p>
+    </details>
+  </Card>;
+}

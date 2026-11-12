@@ -1,19 +1,11 @@
-'use client'
+import type { ReactNode } from 'react';
+import { Icon, type IconName } from './ui';
 
-import React from 'react';
-
-interface CardProps {
-  title: string;
-  children: React.ReactNode;
+export default function Card({ title, children, eyebrow, icon, action, id, className = '' }: {
+  title: string; children: ReactNode; eyebrow?: string; icon?: IconName; action?: ReactNode; id?: string; className?: string;
+}) {
+  return <section className={`panel ${className}`} id={id} aria-label={title}>
+    <header className="panel-header"><div className="panel-heading">{icon && <span className="panel-icon"><Icon name={icon}/></span>}<div>{eyebrow && <p className="eyebrow">{eyebrow}</p>}<h2>{title}</h2></div></div>{action}</header>
+    <div className="panel-content">{children}</div>
+  </section>;
 }
-
-const Card: React.FC<CardProps> = ({ title, children }) => {
-  return (
-    <div className="bg-white dark:bg-gray-800 shadow-lg rounded-lg p-6 mb-6">
-      <h2 className="text-2xl font-bold mb-4 text-gray-900 dark:text-white">{title}</h2>
-      <div>{children}</div>
-    </div>
-  );
-};
-
-export default Card;
