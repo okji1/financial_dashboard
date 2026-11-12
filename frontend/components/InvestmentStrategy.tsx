@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Card from './Card';
+import { fetchApi } from '../lib/api';
 
 interface Signal {
   type: string;
@@ -23,16 +24,11 @@ const InvestmentStrategy = () => {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:5000';
-        const res = await fetch(`${apiUrl}/api/investment-strategy`);
-        const result = await res.json();
-
-        if (!res.ok) {
-          throw new Error(result.error || `HTTP error! status: ${res.status}`);
-        }
-
+        const result = await fetchApi<StrategyData>('/api/investment-strategy');
+        setError(null);
         setData(result);
       } catch (e) {
+        setData(null);
         if (e instanceof Error) {
           setError(e.message);
         } else {

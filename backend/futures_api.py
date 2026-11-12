@@ -17,6 +17,10 @@ def generate_gold_futures_candidates():
     import os
     import re
 
+    master_path = os.getenv("KIS_GOLD_FUTURES_MASTER_PATH")
+    if master_path:
+        from gold_master import load_gold_contracts
+        return load_gold_contracts(master_path)
     raw = os.getenv("KIS_GOLD_FUTURES_SYMBOLS", "")
     symbols = [value.strip().upper() for value in raw.split(",") if value.strip()]
     candidates = []
@@ -72,14 +76,21 @@ def get_domestic_futures_data(symbol):
     if data and data.get('rt_cd') == '0' and data.get('output1'):
         output1 = data.get('output1', {})
         # 선물 데이터가 실제로 있는지 확인 (거래량 체크)
-        volume = int(output1.get('acml_vol', 0))
+        try:
+            volume = int(output1['acml_vol'])
+            price = float(output1['futs_prpr'])
+            import math
+            if volume < 0 or not math.isfinite(price) or price <= 0:
+                return None
+        except (KeyError, ValueError, TypeError):
+            return None
         if volume > 0:  # 거래량이 있는 경우만 유효한 데이터로 간주
             print(f"📊 {symbol} 선물 데이터 조회 성공 (거래량: {volume:,})")
             return {
                 "symbol": symbol,
-                "current_price": float(output1.get('futs_prpr', 0)),         # 선물현재가
+                "current_price": price,         # 선물현재가
                 "volume": volume,                                            # 총거래량
-                "open_interest": int(output1.get('hts_otst_stpl_qty', 0)),   # 미결제약정
+                "open_interest": int(output1['hts_otst_stpl_qty']) if output1.get('hts_otst_stpl_qty') else None,   # 미결제약정
                 "change_rate": float(output1.get('futs_prdy_ctrt', 0)),      # 전일대비율
                 "high": float(output1.get('futs_hgpr', 0)),                  # 고가
                 "low": float(output1.get('futs_lwpr', 0))                    # 저가
@@ -118,7 +129,7 @@ def get_domestic_futures_orderbook(symbol):
         }
         
         print(f"🔗 KIS 호가 API 호출: {symbol} (TR_ID: FHMIF10010000)")
-        response = requests.get(url, headers=headers, params=params)
+        response = requests.get(url, headers=headers, params=params, timeout=(3, 8))
         
         if response.status_code == 200:
             data = response.json()
@@ -128,9 +139,12 @@ def get_domestic_futures_orderbook(symbol):
                 output2 = data.get('output2', {})
                 
                 # Excel에서 확인한 핵심 필드들 사용
-                total_ask_quantity = int(output2.get('total_askp_rsqn', 0) or 0)  # 총 매도호가 잔량
-                total_bid_quantity = int(output2.get('total_bidp_rsqn', 0) or 0)  # 총 매수호가 잔량
+                total_ask_quantity = int(output2['total_askp_rsqn'])  # 총 매도호가 잔량
+                total_bid_quantity = int(output2['total_bidp_rsqn'])  # 총 매수호가 잔량
                 
+                if total_ask_quantity < 0 or total_bid_quantity < 0:
+                    return None
+
                 # 매수/매도 압력 분석
                 total_quantity = total_ask_quantity + total_bid_quantity
                 if total_quantity > 0:
@@ -195,7 +209,7 @@ def get_domestic_futures_orderbook(symbol):
             return None
             
     except Exception as e:
-        print(f"⚠️ {symbol} 호가 조회 실패: {str(e)}")
+        print(f"⚠️ {symbol} 호가 조회 실패: {type(e).__name__}")
         return None
 
 
@@ -217,12 +231,15 @@ def find_active_gold_contract():
         price_data = get_domestic_futures_data(symbol)
         
         # 호가 데이터 (매수/매도 압력 분석)
-        orderbook_data = get_domestic_futures_orderbook(symbol)
+        orderbook_data = get_domestic_futures_orderbook(symbol) if price_data else None
         
         if price_data:
             combined_data = {
                 **candidate,
-                **price_data
+                **price_data,
+                "expiry_year": candidate.get("year"),
+                "expiry_month": candidate.get("month"),
+                "updated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             }
             
             # 호가 정보가 있으면 추가

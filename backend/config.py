@@ -17,7 +17,8 @@ EXCHANGE_RATE_API_KEY = os.getenv("EXCHANGE_RATE_API_KEY")
 
 # Supabase 설정
 SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+# Backend-only key; never use a NEXT_PUBLIC_ variable for this value.
+SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_KEY")
 
 # API 엔드포인트
 KIS_TOKEN_URL = "https://openapi.koreainvestment.com:9443/oauth2/tokenP"

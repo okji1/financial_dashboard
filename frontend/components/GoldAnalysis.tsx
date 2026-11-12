@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Card from './Card';
+import { fetchApi } from '../lib/api';
 
 interface MarketOverview {
   london_gold_usd: number;
@@ -16,7 +17,7 @@ interface RiskAssessment {
     description: string;
   };
   market_volatility: string;
-  liquidity_score: number;
+  liquidity_score: number | null;
 }
 
 interface TradingSignal {
@@ -41,16 +42,11 @@ const GoldAnalysis = () => {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:5000';
-        const res = await fetch(`${apiUrl}/api/gold-analysis`);
-        const result = await res.json();
-
-        if (!res.ok) {
-          throw new Error(result.error || `HTTP error! status: ${res.status}`);
-        }
-
+        const result = await fetchApi<ComprehensiveAnalysis>('/api/gold-analysis');
+        setError(null);
         setData(result);
       } catch (e) {
+        setData(null);
         if (e instanceof Error) {
           setError(e.message);
         } else {
@@ -102,7 +98,7 @@ const GoldAnalysis = () => {
           {/* 시장 개요 */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div className="text-center p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
-              <div className="text-xs text-gray-500 dark:text-gray-400">런던 금 (USD)</div>
+              <div className="text-xs text-gray-500 dark:text-gray-400">COMEX 금 선물 (USD)</div>
               <div className="text-lg font-bold">${data.market_overview.london_gold_usd?.toFixed(0) || 'N/A'}</div>
             </div>
             <div className="text-center p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">

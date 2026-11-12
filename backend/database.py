@@ -10,7 +10,7 @@ from supabase import create_client, Client
 try:
     supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 except Exception as e:
-    print(f"Supabase 초기화 실패: {e}")
+    print("Supabase 초기화 실패")
     supabase = None
 
 
@@ -32,7 +32,7 @@ def get_cached_token(strict=False):
             if datetime.datetime.now(datetime.timezone.utc) - created_at < datetime.timedelta(hours=23):
                 return token_data['access_token']
     except Exception as e:
-        print(f"토큰 조회 오류: {e}")
+        print("토큰 조회 오류")
         if strict:
             raise
     
@@ -51,7 +51,7 @@ def save_token(access_token):
         }).execute()
         return True
     except Exception as e:
-        print(f"토큰 저장 오류: {e}")
+        print("토큰 저장 오류")
         return False
 
 
@@ -68,7 +68,7 @@ def get_cached_gold_data():
         if result.data and len(result.data) > 0:
             return result.data[0]
     except Exception as e:
-        print(f"캐시된 데이터 조회 오류: {e}")
+        print("캐시된 데이터 조회 오류")
     
     return None
 
@@ -95,7 +95,7 @@ def save_gold_data(london_data, domestic_data, premium_data):
         supabase.table(GOLD_DATA_TABLE).insert(data_to_save).execute()
         return True
     except Exception as e:
-        print(f"데이터 저장 오류: {e}")
+        print("데이터 저장 오류")
         return False
 
 
@@ -112,7 +112,7 @@ def get_active_contract():
         if result.data and len(result.data) > 0:
             return result.data[0]
     except Exception as e:
-        print(f"활성 계약 조회 오류: {e}")
+        print("활성 계약 조회 오류")
     
     return None
 
@@ -137,7 +137,7 @@ def save_active_contract(contract_data):
         supabase.table(ACTIVE_CONTRACT_TABLE).insert(data_to_save).execute()
         return True
     except Exception as e:
-        print(f"활성 계약 저장 오류: {e}")
+        print("활성 계약 저장 오류")
         return False
 
 
@@ -159,4 +159,4 @@ def cleanup_old_data():
         
         print("오래된 데이터 정리 완료")
     except Exception as e:
-        print(f"데이터 정리 오류: {e}")
+        print("데이터 정리 오류")

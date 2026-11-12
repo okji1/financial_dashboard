@@ -23,20 +23,8 @@ def analyze_cot_positions():
         }
     
     try:
-        # 금 선물 COT 데이터 조회 (COMEX)
-        # cot_reports 라이브러리 사용법에 따라 수정 필요
-        # cot_data = cot_reports.get_cot_report(commodity='GC')  # GC = Gold futures
-        
-        # 임시로 더미 데이터 반환
-        return {
-            "report_date": datetime.datetime.now().strftime('%Y-%m-%d'),
-            "commercial_sentiment": "분석 필요",
-            "speculator_sentiment": "분석 필요", 
-            "commercial_net_position": 0,
-            "large_spec_net_position": 0,
-            "market_signal": {"signal": "중립", "reason": "COT 라이브러리 설정 필요"}
-        }
-        
+        return {"available": False, "message": "COT 데이터 소스가 연결되지 않았습니다"}
+
     except Exception as e:
         print(f"COT 분석 오류: {e}")
         return None
@@ -122,7 +110,7 @@ def generate_comprehensive_analysis(premium_data):
         if not premium_data:
             return {"error": "프리미엄 데이터가 없습니다"}
         
-        premium_pct = premium_data.get('premium_percentage', 0)
+        premium_pct = premium_data.get('premium_percentage')
         
         analysis = {
             "timestamp": premium_data.get('timestamp', datetime.datetime.now().isoformat()),
@@ -134,8 +122,8 @@ def generate_comprehensive_analysis(premium_data):
             },
             "risk_assessment": {
                 "premium_grade": get_premium_grade_detail(premium_pct),
-                "market_volatility": get_volatility_assessment(premium_pct),
-                "liquidity_score": 8.5  # 현물은 일반적으로 높은 유동성
+                "market_volatility": "미측정",
+                "liquidity_score": None  # No measured volume/liquidity data
             },
             "trading_signals": generate_simple_trading_signals(premium_pct),
             "recommendations": generate_premium_recommendations(premium_pct)
@@ -279,7 +267,7 @@ def generate_trading_signals(london_data, domestic_data, premium_data, cot_data)
     try:
         # 프리미엄 신호
         if premium_data:
-            premium = premium_data.get('premium_percentage', 0)
+            premium = premium_data.get('premium_percentage')
             if premium < 2:
                 signals.append({"type": "BUY", "strength": "Strong", "reason": "낮은 프리미엄"})
             elif premium > 6:
@@ -307,7 +295,7 @@ def generate_recommendations(premium_data, cot_data):
     try:
         # 프리미엄 기반 추천
         if premium_data:
-            premium = premium_data.get('premium_percentage', 0)
+            premium = premium_data.get('premium_percentage')
             if premium < 2:
                 recommendations.append("국내 금 프리미엄이 낮아 매수 기회로 판단됩니다.")
             elif premium > 6:

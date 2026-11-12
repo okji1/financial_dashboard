@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Card from './Card';
+import { fetchApi } from '../lib/api';
 
 interface GoldPremiumData {
   london_gold_usd: number;
@@ -22,16 +23,11 @@ const GoldPremium = () => {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:5000';
-        const res = await fetch(`${apiUrl}/api/gold-premium`);
-        const result = await res.json();
-
-        if (!res.ok) {
-          throw new Error(result.error || `HTTP error! status: ${res.status}`);
-        }
-
+        const result = await fetchApi<GoldPremiumData>('/api/gold-premium');
+        setError(null);
         setData(result);
       } catch (e) {
+        setData(null);
         if (e instanceof Error) {
           setError(e.message);
         } else {
@@ -70,9 +66,10 @@ const GoldPremium = () => {
     if (data) {
       return (
         <div className="space-y-4">
+          <p className="text-xs text-gray-500">국제 선물과 국내 현물의 참고 비교입니다. 동시점 현물 프리미엄이 아닙니다.</p>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
-              <h3 className="font-semibold text-gray-700 dark:text-gray-300">GC뉴욕상품거래소 현물</h3>
+              <h3 className="font-semibold text-gray-700 dark:text-gray-300">COMEX 금 선물 (네이버)</h3>
               <ul className="space-y-1 text-sm">
                 <li className="flex justify-between">
                   <span>USD/oz</span> 
@@ -116,7 +113,7 @@ const GoldPremium = () => {
 
           <div className="text-xs text-gray-500 dark:text-gray-400 flex justify-between">
             <span>환율: ₩{data.exchange_rate?.toFixed(2) || 'N/A'}</span>
-            <span>{data.cached ? '캐시됨' : '실시간'}</span>
+            <span>{data.cached ? '캐시된 참고 시세' : '조회 시세'}</span>
           </div>
         </div>
       );

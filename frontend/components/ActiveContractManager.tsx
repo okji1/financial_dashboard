@@ -2,11 +2,12 @@
 
 import { useEffect, useState } from 'react';
 import Card from './Card';
+import { ApiError, fetchApi } from '../lib/api';
 
 interface ContractCandidate {
   symbol: string;
-  year: number;
-  month: number;
+  year: number | null;
+  month: number | null;
   description: string;
 }
 
@@ -16,8 +17,8 @@ interface ActiveContract {
   current_price: number;
   volume: number;
   open_interest: number;
-  expiry_year: number;
-  expiry_month: number;
+  expiry_year: number | null;
+  expiry_month: number | null;
   updated_at: string;
   buy_pressure?: number;
   sell_pressure?: number;
@@ -42,82 +43,53 @@ const ActiveContractManager = () => {
   const [pressureAnalysis, setPressureAnalysis] = useState<PressureAnalysis | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [updating, setUpdating] = useState<boolean>(false);
+  const [candidateError, setCandidateError] = useState<string | null>(null);
+  const [empty, setEmpty] = useState(false);
+  const [pressureError, setPressureError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const fetchPressureAnalysis = async () => {
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:5000';
-      console.log('🔗 Pressure API 호출:', `${apiUrl}/api/pressure-signal`);
-      
-      const res = await fetch(`${apiUrl}/api/pressure-signal`);
-      console.log('📡 Pressure API 응답 상태:', res.status);
-      
-      if (res.ok) {
-        const result = await res.json();
-        console.log('✅ Pressure 데이터 수신:', result);
-        setPressureAnalysis(result);
-      } else if (res.status === 404) {
-        setPressureAnalysis(null);
-      } else {
-        const errorText = await res.text();
-        console.error('❌ Pressure API 오류:', res.status, errorText);
-      }
+      const result = await fetchApi<PressureAnalysis>('/api/pressure-signal');
+      setPressureAnalysis(result);
+      setPressureError(null);
     } catch (e) {
-      console.error('❌ Pressure analysis fetch error:', e);
+      setPressureAnalysis(null);
+      setPressureError(e instanceof ApiError && e.status === 404 ? null : String(e));
     }
   };
 
   const fetchActiveContract = async () => {
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:5000';
-      const res = await fetch(`${apiUrl}/api/active-contract`);
-      const result = await res.json();
-
-      if (res.status === 404) {
-        setActiveContract(null);
-        setError('현재 조회 가능한 금선물 계약이 없습니다. 검증된 종목코드 설정이 필요합니다.');
-        return;
-      }
-      if (!res.ok) {
-        throw new Error(result.error || `HTTP error! status: ${res.status}`);
-      }
+      const result = await fetchApi<ActiveContract>('/api/active-contract');
+      setEmpty(false);
       setError(null);
       setActiveContract(result);
     } catch (e) {
-      console.error('Active contract fetch error:', e);
+      setActiveContract(null);
+      setPressureAnalysis(null);
+      if (e instanceof ApiError && e.status === 404) { setEmpty(true); setError(null); return; }
+      setEmpty(false);
       setError(e instanceof Error ? e.message : String(e));
     }
   };
 
   const fetchCandidates = async () => {
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:5000';
-      const res = await fetch(`${apiUrl}/api/futures-candidates`);
-      const result = await res.json();
-
-      if (!res.ok) {
-        throw new Error(result.error || `HTTP error! status: ${res.status}`);
-      }
-
-      setCandidates(result.candidates || []);
+      const result = await fetchApi<{ candidates: ContractCandidate[] }>('/api/futures-candidates');
+      setCandidates(result.candidates);
+      setCandidateError(null);
     } catch (e) {
-      console.error('Candidates fetch error:', e);
+      setCandidates([]);
+      setCandidateError(e instanceof Error ? e.message : String(e));
     }
   };
 
   const updateActiveContract = async () => {
     setUpdating(true);
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:5000';
-      const res = await fetch(`${apiUrl}/api/update-active-contract`, {
-        method: 'POST',
-      });
-      const result = await res.json();
-
-      if (!res.ok) {
-        throw new Error(result.error || `HTTP error! status: ${res.status}`);
-      }
-
+      const result = await fetchApi<{ contract: ActiveContract }>('/api/update-active-contract', { method: 'POST' });
+      setPressureAnalysis(null);
       setActiveContract(result.contract);
       setError(null);
     } catch (e) {
@@ -156,7 +128,8 @@ const ActiveContractManager = () => {
     return new Date(dateString).toLocaleString('ko-KR');
   };
 
-  const isContractExpiringSoon = (year: number, month: number) => {
+  const isContractExpiringSoon = (year: number | null, month: number | null) => {
+    if (!year || !month) return false;
     const now = new Date();
     const expiryDate = new Date(year, month - 1, 1);
     const daysUntilExpiry = Math.ceil((expiryDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
@@ -200,7 +173,7 @@ const ActiveContractManager = () => {
                 <div className="flex justify-between">
                   <span className="text-sm text-blue-700 dark:text-blue-300">만료일:</span>
                   <strong className="text-blue-800 dark:text-blue-200">
-                    {activeContract.expiry_year}년 {activeContract.expiry_month}월
+                    {activeContract.expiry_year && activeContract.expiry_month ? `${activeContract.expiry_year}년 ${activeContract.expiry_month}월` : '미확인'}
                   </strong>
                 </div>
                 <div className="flex justify-between">
@@ -250,13 +223,13 @@ const ActiveContractManager = () => {
                   <div className="text-center">
                     <div className="text-xs text-yellow-700 dark:text-yellow-300">매수 압력</div>
                     <div className="text-lg font-bold text-green-600 dark:text-green-400">
-                      {pressureAnalysis.buy_pressure?.toFixed(1) || '0'}%
+                      {pressureAnalysis.buy_pressure?.toFixed(1) ?? 'N/A'}%
                     </div>
                   </div>
                   <div className="text-center">
                     <div className="text-xs text-yellow-700 dark:text-yellow-300">매도 압력</div>
                     <div className="text-lg font-bold text-red-600 dark:text-red-400">
-                      {pressureAnalysis.sell_pressure?.toFixed(1) || '0'}%
+                      {pressureAnalysis.sell_pressure?.toFixed(1) ?? 'N/A'}%
                     </div>
                   </div>
                   <div className="text-center">
@@ -273,10 +246,10 @@ const ActiveContractManager = () => {
               ) : (
                 <div className="text-center py-4">
                   <div className="text-sm text-yellow-700 dark:text-yellow-300">
-                    현재 매수/매도 압력 데이터가 없습니다.
+                    {pressureError || '현재 매수/매도 압력 데이터가 없습니다.'}
                   </div>
                   <div className="text-xs text-yellow-600 dark:text-yellow-400 mt-1">
-                    브라우저 개발자 도구(F12) → Console에서 오류 확인 가능
+                    데이터를 확인한 뒤 다시 시도해 주세요.
                   </div>
                 </div>
               )}
@@ -300,6 +273,7 @@ const ActiveContractManager = () => {
           </div>
         )}
 
+        {empty && <p role="status">현재 조회 가능한 금선물 계약이 없습니다.</p>}
         {/* 에러 메시지 */}
         {error && (
           <div className="p-3 bg-red-50 dark:bg-red-900 text-red-700 dark:text-red-200 rounded-lg text-sm">
@@ -307,6 +281,7 @@ const ActiveContractManager = () => {
           </div>
         )}
 
+        {candidateError && <p role="alert">후보 목록: {candidateError}</p>}
         {/* 후보 계약들 */}
         {candidates.length > 0 && (
           <div className="space-y-3">

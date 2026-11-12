@@ -3,6 +3,13 @@
 """
 
 import requests
+import logging
+import threading
+import time
+from urllib.parse import urlsplit
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 from config import (
     EXCHANGE_RATE_API_KEY, 
     KIS_APP_KEY, 
@@ -19,6 +26,7 @@ from config import (
 
 def api_call(url, headers=None, json_data=None):
     """API 호출 공통 함수"""
+    started = time.monotonic()
     try:
         if json_data:
             response = requests.post(url, headers=headers, json=json_data, timeout=(3, 8))
@@ -26,9 +34,13 @@ def api_call(url, headers=None, json_data=None):
             response = requests.get(url, headers=headers, timeout=(3, 8))
         response.raise_for_status()
         return response.json()
-    except requests.exceptions.RequestException as e:
-        print(f"API 호출 실패: {e}")
+    except (requests.exceptions.RequestException, ValueError) as e:
+        # Never log the exception URL: exchange queries contain an API key.
+        logger.warning("upstream_failed host=%s error=%s", urlsplit(url).hostname, type(e).__name__)
         return None
+    finally:
+        logger.info("upstream_timing host=%s path=%s duration_ms=%.1f", urlsplit(url).hostname,
+                    urlsplit(url).path, (time.monotonic() - started) * 1000)
 
 
 def get_kis_token():
@@ -106,27 +118,46 @@ def get_domestic_gold_price():
         return None
 
 
+_exchange_lock = threading.Lock()
+_exchange_value = None
+_exchange_until = 0.0
+
+
 def get_exchange_rate():
-    """환율 조회 (USD/KRW) - 여러 날짜 시도"""
+    """Cache valid USD/KRW for 10 minutes; suppress failed retries for 30s.
+
+    Empty business-day results permit date fallback. Transport/auth failures
+    stop immediately rather than paying five successive network timeouts.
+    Never replace an unavailable quote with an invented exchange rate.
+    """
     from datetime import datetime, timedelta
-    
-    try:
-        # 환율 조회 (여러 날짜 시도)
-        usd_krw_rate = None
-        for i in range(5):
-            date = (datetime.now().date() - timedelta(days=i)).strftime('%Y%m%d')
-            exchange_data = api_call(f"https://oapi.koreaexim.go.kr/site/program/financial/exchangeJSON?authkey={EXCHANGE_RATE_API_KEY}&searchdate={date}&data=AP01")
-            
-            if exchange_data and isinstance(exchange_data, list):
-                for item in exchange_data:
-                    if item.get('cur_unit') == 'USD':
-                        usd_krw_rate = float(item['deal_bas_r'].replace(',', ''))
-                        break
-                if usd_krw_rate:
+    from zoneinfo import ZoneInfo
+    global _exchange_value, _exchange_until
+    with _exchange_lock:
+        if time.monotonic() < _exchange_until:
+            return _exchange_value
+        value = None
+        if EXCHANGE_RATE_API_KEY:
+            today = datetime.now(ZoneInfo("Asia/Seoul")).date()
+            for i in range(5):
+                date = (today - timedelta(days=i)).strftime('%Y%m%d')
+                data = api_call(f"https://oapi.koreaexim.go.kr/site/program/financial/exchangeJSON?authkey={EXCHANGE_RATE_API_KEY}&searchdate={date}&data=AP01")
+                if data is None or not isinstance(data, list):
                     break
-        
-        return usd_krw_rate if usd_krw_rate else 1380.0  # 기본값
-        
-    except Exception as e:
-        print(f"환율 조회 실패: {e}")
-        return 1380.0  # 기본값
+                for item in data:
+                    if item.get('result') not in (None, 1):
+                        break
+                    if item.get('cur_unit') == 'USD':
+                        try:
+                            import math
+                            candidate = float(str(item['deal_bas_r']).replace(',', ''))
+                            if math.isfinite(candidate) and candidate > 0:
+                                value = candidate
+                        except (KeyError, ValueError, TypeError):
+                            pass
+                        break
+                if value is not None or (data and any(item.get('result') not in (None, 1) for item in data)):
+                    break
+        _exchange_value = value
+        _exchange_until = time.monotonic() + (600 if value is not None else 30)
+        return value

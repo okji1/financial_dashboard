@@ -3,8 +3,11 @@
 """
 
 import datetime
+import os
 import threading
 import time
+import math
+from concurrent.futures import ThreadPoolExecutor
 from api_utils import get_naver_gold_price, get_domestic_gold_price, get_exchange_rate
 
 
@@ -15,49 +18,52 @@ _gold_cache_until = 0.0
 
 def get_gold_premium_data():
     """Share a short-lived quote across several dashboard endpoints."""
+    snapshot_path = os.getenv("QUOTE_SNAPSHOT_PATH")
+    if snapshot_path:
+        from quote_store import read_snapshot
+        return read_snapshot(snapshot_path)
     global _gold_cache, _gold_cache_until
     now = time.monotonic()
-    if _gold_cache is not None and now < _gold_cache_until:
-        return dict(_gold_cache)
+    if now < _gold_cache_until:
+        return dict(_gold_cache) if _gold_cache is not None else None
     with _gold_cache_lock:
-        if _gold_cache is not None and time.monotonic() < _gold_cache_until:
-            return dict(_gold_cache)
+        if time.monotonic() < _gold_cache_until:
+            return dict(_gold_cache) if _gold_cache is not None else None
         result = _collect_gold_premium_data()
-        if result is not None:
-            _gold_cache = dict(result)
-            _gold_cache_until = time.monotonic() + 60
+        _gold_cache = dict(result) if result is not None else None
+        _gold_cache_until = time.monotonic() + (60 if result is not None else 15)
         return result
 
 
 def _collect_gold_premium_data():
     """금 프리미엄 분석을 위한 모든 데이터 수집"""
     try:
-        # 1. 국제 금시세 (USD/oz)
-        international_price_usd = get_naver_gold_price()
-        
-        # 2. 환율 (USD/KRW)
-        exchange_rate = get_exchange_rate()
-        
-        # 3. 국내 금시세 (KRW/g)
-        domestic_price_krw = get_domestic_gold_price()
-        
-        if not all([international_price_usd, exchange_rate, domestic_price_krw]):
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            international = executor.submit(get_naver_gold_price)
+            exchange = executor.submit(get_exchange_rate)
+            domestic = executor.submit(get_domestic_gold_price)
+            international_price_usd, exchange_rate, domestic_price_krw = (
+                international.result(), exchange.result(), domestic.result())
+        if not all(isinstance(v, (int, float)) and math.isfinite(v) and v > 0
+                   for v in (international_price_usd, exchange_rate, domestic_price_krw)):
             return None
-            
+
         # 국제 금시세를 KRW/g으로 변환 (1 oz = 31.1035 g)
         international_price_krw_per_gram = (international_price_usd * exchange_rate) / 31.1035
         
         # 프리미엄 계산
         premium_data = calculate_gold_premium(international_price_krw_per_gram, domestic_price_krw)
         
+        if premium_data is None:
+            return None
         return {
             "international_price_usd_oz": international_price_usd,
             "domestic_price_krw_g": domestic_price_krw, 
             "usd_krw_rate": exchange_rate,
             "converted_intl_price_krw_g": round(international_price_krw_per_gram, 2),
-            "premium_percentage": premium_data.get('premium_percentage') if premium_data else 0,
-            "premium_grade": get_premium_grade(premium_data.get('premium_percentage') if premium_data else 0),
-            "timestamp": datetime.datetime.now().isoformat()
+            "premium_percentage": premium_data['premium_percentage'],
+            "premium_grade": get_premium_grade(premium_data['premium_percentage']),
+            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat()
         }
         
     except Exception as e:
