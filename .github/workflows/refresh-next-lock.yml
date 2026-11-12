@@ -22,7 +22,7 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - name: Upgrade to patched Next.js 15 and refresh lockfile
         working-directory: frontend
-        run: npm install --save-exact next@15.5.28 eslint-config-next@15.5.28 react@19.1.2 react-dom@19.1.2
+        run: npm install --save-exact next@15.5.29 eslint-config-next@15.5.29 react@19.1.2 react-dom@19.1.2
       - name: Verify clean installation and build
         working-directory: frontend
         run: |
