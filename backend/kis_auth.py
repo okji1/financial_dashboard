@@ -19,6 +19,7 @@ _retry_after = 0.0
 # Existing database cache uses 23 hours from insertion. Keep in-process
 # tokens for at most 23 hours, with a short safety window.
 MEMORY_TTL_SECONDS = 23 * 60 * 60 - 60
+STORED_TOKEN_RECHECK_SECONDS = 60
 FAILED_ISSUE_COOLDOWN_SECONDS = 90
 
 
@@ -50,7 +51,7 @@ def get_access_token():
 
         if token:
             _cached_token = token
-            _cached_until = time.monotonic() + MEMORY_TTL_SECONDS
+            _cached_until = time.monotonic() + STORED_TOKEN_RECHECK_SECONDS
             logger.info("Reusing stored KIS access token")
             return token
 
