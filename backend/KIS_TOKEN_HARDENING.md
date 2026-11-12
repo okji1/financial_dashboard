@@ -6,7 +6,7 @@ Supabase cache.
 
 - Shared cache lookup fails (DNS/network): **do not issue** a new KIS token.
   Return no token and retry after a cooldown.
-- Shared cache has a valid token: reuse it (then use in-process cache).
+- Shared cache has a valid token: reuse it, but recheck its DB age every 60 seconds (avoids treating a near-expiry stored token as fresh for another 23 hours).
 - No cached token: request one token under a process-level lock.
 - Issuance fails: impose a 90-second cooldown rather than retrying for every
   futures candidate.
@@ -26,10 +26,9 @@ python -m unittest discover -s backend/tests -v
 
 ## Limitations / further fixes
 
-- The 23-hour memory expiration is based on when the token was first observed,
-  not necessarily its true expiration if loaded from an older Supabase row.
-  The DB cache still validates its original creation timestamp. For accurate
-  expiration across restarts, store the issuer-provided expiration timestamp.
+- New tokens are held in memory for under 23 hours from issuance; database-loaded
+  tokens are revalidated against the original DB creation timestamp every minute.
+  For exact expiry semantics across restarts, persist the issuer expiry timestamp.
 - A thread lock is **not** a distributed lock. Multiple Gunicorn workers or
   Render instances may issue tokens concurrently on expiry. Consider a
   centralized renewal service / distributed lock before scaling.
