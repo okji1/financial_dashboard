@@ -3,7 +3,7 @@
 """
 
 import datetime
-from api_utils import get_naver_gold_price, get_domestic_gold_price, get_exchange_rate
+from api_utils import get_naver_gold_price, get_domestic_gold_quote, get_exchange_rate
 
 
 def get_gold_premium_data():
@@ -16,7 +16,8 @@ def get_gold_premium_data():
         exchange_rate = get_exchange_rate()
         
         # 3. 국내 금시세 (KRW/g)
-        domestic_price_krw = get_domestic_gold_price()
+        domestic_quote = get_domestic_gold_quote()
+        domestic_price_krw = domestic_quote['close_krw_per_g'] if domestic_quote else None
         
         if not all([international_price_usd, exchange_rate, domestic_price_krw]):
             return None
@@ -29,7 +30,11 @@ def get_gold_premium_data():
         
         return {
             "international_price_usd_oz": international_price_usd,
-            "domestic_price_krw_g": domestic_price_krw, 
+            "domestic_price_krw_g": domestic_price_krw,
+            "domestic_gold_source": domestic_quote["source"],
+            "domestic_gold_date": domestic_quote["trade_date"],
+            "domestic_gold_is_realtime": False,
+            "price_alignment_warning": "KRX 일별 종가와 국제 금/환율의 기준 시점이 일치하지 않을 수 있습니다. 참고용 프리미엄입니다.", 
             "usd_krw_rate": exchange_rate,
             "converted_intl_price_krw_g": round(international_price_krw_per_gram, 2),
             "premium_percentage": premium_data.get('premium_percentage') if premium_data else 0,
