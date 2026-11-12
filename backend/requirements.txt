@@ -7,3 +7,5 @@ Flask-Cors
 cot-reports
 pandas
 numpy
+fastapi==0.162.5
+uvicorn==0.54.0

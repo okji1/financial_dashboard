@@ -1,0 +1,121 @@
+"""Public contracts. Finite numbers and nullable unavailable measurements."""
+from pydantic import BaseModel, ConfigDict, Field
+from typing import Annotated
+
+Number = Annotated[float, Field(allow_inf_nan=False, strict=True)]
+
+
+class ContractModel(BaseModel):
+    model_config = ConfigDict(extra='allow')
+
+
+class Premium(ContractModel):
+    london_gold_usd: Number
+    london_gold_krw: Number
+    domestic_gold_price: Number
+    premium_percentage: Number
+    premium_grade: str
+    exchange_rate: Number
+    active_contract: str
+    cached: bool
+    timestamp: str
+
+
+class Signal(ContractModel):
+    type: str
+    message: str
+    strength: str
+
+
+class Strategy(ContractModel):
+    premium_grade: str
+    premium_percentage: Number
+    signals: list[Signal]
+    recommendation: str
+
+
+class Candidate(ContractModel):
+    symbol: str
+    description: str
+    year: int | None = None
+    month: int | None = None
+    expiry_date: str | None = None
+
+
+class Candidates(ContractModel):
+    candidates: list[Candidate]
+    count: int
+
+
+class ActiveContract(ContractModel):
+    symbol: str
+    description: str
+    current_price: Annotated[Number, Field(gt=0)]
+    volume: Annotated[int, Field(gt=0, strict=True)]
+    open_interest: int | None = None
+    expiry_year: int | None = None
+    expiry_month: int | None = None
+    updated_at: str
+
+
+class Pressure(ContractModel):
+    symbol: str
+    pressure_signal: str
+    buy_pressure: Annotated[Number, Field(ge=0, le=100)]
+    sell_pressure: Annotated[Number, Field(ge=0, le=100)]
+    recommendation: str
+    timestamp: str
+
+
+class MarketOverview(ContractModel):
+    london_gold_usd: Number
+    london_gold_krw: Number
+    domestic_gold_price: Number
+    premium_percentage: Number
+
+
+class PremiumGrade(ContractModel):
+    grade: str
+    description: str
+
+
+class Risk(ContractModel):
+    premium_grade: PremiumGrade
+    market_volatility: str
+    liquidity_score: Number | None
+
+
+class TradingSignal(ContractModel):
+    type: str
+    strength: str
+    reason: str
+
+
+class Analysis(ContractModel):
+    timestamp: str
+    market_overview: MarketOverview
+    risk_assessment: Risk
+    trading_signals: list[TradingSignal]
+    recommendations: list[str]
+
+
+class Orderbook(ContractModel):
+    symbol: str
+    contract_name: str
+    current_price: str | Number
+    volume: str | int
+    pressure_analysis: dict
+    orderbook: dict
+    price_info: dict
+    last_update_time: str
+    analysis_time: str
+
+
+class Update(ContractModel):
+    message: str
+    contract: ActiveContract
+    refresh_requested: bool
+
+
+class TokenStatus(BaseModel):
+    cache_hit: bool

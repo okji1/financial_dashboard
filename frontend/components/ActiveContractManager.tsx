@@ -43,6 +43,7 @@ const ActiveContractManager = () => {
   const [pressureAnalysis, setPressureAnalysis] = useState<PressureAnalysis | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [updating, setUpdating] = useState<boolean>(false);
+  const [pendingUpdate, setPendingUpdate] = useState<string | null>(null);
   const [candidateError, setCandidateError] = useState<string | null>(null);
   const [empty, setEmpty] = useState(false);
   const [pressureError, setPressureError] = useState<string | null>(null);
@@ -65,10 +66,11 @@ const ActiveContractManager = () => {
       setEmpty(false);
       setError(null);
       setActiveContract(result);
+      setPendingUpdate(current => current === result.updated_at ? current : null);
     } catch (e) {
       setActiveContract(null);
       setPressureAnalysis(null);
-      if (e instanceof ApiError && e.status === 404) { setEmpty(true); setError(null); return; }
+      if (e instanceof ApiError && e.status === 404) { setEmpty(true); setPendingUpdate(null); setError(null); return; }
       setEmpty(false);
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -88,9 +90,10 @@ const ActiveContractManager = () => {
   const updateActiveContract = async () => {
     setUpdating(true);
     try {
-      const result = await fetchApi<{ contract: ActiveContract }>('/api/update-active-contract', { method: 'POST' });
+      const result = await fetchApi<{ contract: ActiveContract; refresh_requested?: boolean }>('/api/update-active-contract', { method: 'POST' });
       setPressureAnalysis(null);
       setActiveContract(result.contract);
+      setPendingUpdate(result.refresh_requested ? result.contract.updated_at : null);
       setError(null);
     } catch (e) {
       if (e instanceof Error) {
@@ -116,11 +119,11 @@ const ActiveContractManager = () => {
 
     fetchData();
     
-    // 1시간마다 자동 새로고침
+    // 공유 시세 갱신을 반영하도록 30초마다 조회
     const interval = setInterval(() => {
       fetchActiveContract();
       fetchPressureAnalysis();
-    }, 60 * 60 * 1000);
+    }, 30 * 1000);
     return () => clearInterval(interval);
   }, []);
 
@@ -143,6 +146,7 @@ const ActiveContractManager = () => {
 
     return (
       <div className="space-y-4">
+        {pendingUpdate && <p role="status" className="text-sm text-blue-600 dark:text-blue-400">갱신을 요청했습니다. 최신 결과를 확인하는 중입니다.</p>}
         {/* 활성 계약 정보 */}
         {activeContract && (
           <div className="p-4 bg-blue-50 dark:bg-blue-900 rounded-lg">
@@ -159,7 +163,7 @@ const ActiveContractManager = () => {
                   disabled={updating}
                   className="px-3 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
                 >
-                  {updating ? '업데이트 중...' : '업데이트'}
+                  {updating ? '요청 중...' : '갱신 요청'}
                 </button>
               </div>
             </div>
@@ -209,7 +213,7 @@ const ActiveContractManager = () => {
             {/* 매수/매도 압력 분석 - 실제 API 데이터 사용 */}
             <div className="mt-4 p-3 bg-yellow-50 dark:bg-yellow-900 rounded-lg">
               <div className="flex justify-between items-center mb-2">
-                <h4 className="font-semibold text-yellow-800 dark:text-yellow-200">실시간 매수/매도 압력 분석</h4>
+                <h4 className="font-semibold text-yellow-800 dark:text-yellow-200">매수/매도 호가 압력 분석</h4>
                 <button
                   onClick={fetchPressureAnalysis}
                   className="px-2 py-1 text-xs bg-yellow-600 text-white rounded hover:bg-yellow-700"

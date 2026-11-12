@@ -15,12 +15,19 @@ _lock = threading.Lock()
 _cached_token = None
 _cached_until = 0.0
 _retry_after = 0.0
+_issuance_guard = None
 
 # Existing database cache uses 23 hours from insertion. Keep in-process
 # tokens for at most 23 hours, with a short safety window.
 MEMORY_TTL_SECONDS = 23 * 60 * 60 - 60
 STORED_TOKEN_RECHECK_SECONDS = 60
 FAILED_ISSUE_COOLDOWN_SECONDS = 90
+
+
+def set_issuance_guard(guard):
+    """Collector-only hook. Renew its distributed lease immediately before issuance."""
+    global _issuance_guard
+    _issuance_guard = guard
 
 
 def get_access_token():
@@ -55,6 +62,13 @@ def get_access_token():
             logger.info("Reusing stored KIS access token")
             return token
 
+        if _issuance_guard is not None:
+            try:
+                _issuance_guard()
+            except Exception:
+                logger.warning("Collector lease unavailable; skipping token issuance")
+                _retry_after = time.monotonic() + FAILED_ISSUE_COOLDOWN_SECONDS
+                return None
         try:
             token = get_kis_token()
         except Exception:
