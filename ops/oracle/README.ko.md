@@ -121,4 +121,7 @@ Oracle의 공인 HTTPS, API 및 Vercel Origin의 CORS를 확인했다. Render는
 백엔드 커밋의 수집 모드만 external로 바꿔 재배포했다. 리스 소유자 변경과
 Oracle의 연속 정상 스냅샷을 확인했으며 금 시세·선물·KRX·수집기 상태는 정상이다.
 기존 토큰이나 DB 리스/정책은 수동 변경하지 않았다. 운영 Vercel의
-NEXT_PUBLIC_API_URL 변경·재배포와 실제 프론트 검증은 별도 마지막 단계다.
+NEXT_PUBLIC_API_URL 변경·재배포도 완료했다. 배포 번들에서 Oracle URL을 확인하고
+기존 Render URL이 없는 것을 확인했다. 운영 브라우저의 9개 API 요청 모두 Oracle로
+향했으며 시세·이력 차트·수동 새로 고침·모바일 및 JavaScript 오류 없음까지 검증했다.
+Render는 external 모드의 롤백용 API로 유지한다.
