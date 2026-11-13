@@ -1,0 +1,18 @@
+[Unit]
+Description=Financial Dashboard HTTPS proxy
+Wants=network-online.target financial-dashboard-api.service
+After=network-online.target financial-dashboard-api.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/financial-dashboard/web.env
+ExecStart=/usr/bin/podman run --rm --replace --pull=never --name financial-dashboard-web --network host --env DASHBOARD_HOST --volume /etc/financial-dashboard/Caddyfile:/etc/caddy/Caddyfile:ro,Z --volume financial-dashboard-caddy-data:/data --volume financial-dashboard-caddy-config:/config docker.io/library/caddy:2 caddy run --config /etc/caddy/Caddyfile --adapter caddyfile
+ExecStop=/usr/bin/podman stop --time 10 financial-dashboard-web
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=25
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

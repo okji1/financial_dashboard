@@ -1,0 +1,28 @@
+[Unit]
+Description=Financial Dashboard lease-elected collector
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=financial-dashboard
+Group=financial-dashboard
+WorkingDirectory=/opt/financial-dashboard/current/backend
+EnvironmentFile=/etc/financial-dashboard/backend.env
+Environment=DASHBOARD_COLLECTOR_MODE=standalone PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1
+ExecStartPre=/opt/financial-dashboard/current/venv/bin/python /opt/financial-dashboard/current/ops/oracle/validate_env.py
+ExecStart=/opt/financial-dashboard/current/venv/bin/python -u snapshot_collector.py
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=45
+StateDirectory=financial-dashboard
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+NoNewPrivileges=true
+UMask=0077
+MemoryMax=1G
+
+[Install]
+WantedBy=multi-user.target

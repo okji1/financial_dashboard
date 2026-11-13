@@ -1,0 +1,28 @@
+[Unit]
+Description=Financial Dashboard FastAPI
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=financial-dashboard
+Group=financial-dashboard
+WorkingDirectory=/opt/financial-dashboard/current/backend
+EnvironmentFile=/etc/financial-dashboard/backend.env
+Environment=PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1
+ExecStartPre=/opt/financial-dashboard/current/venv/bin/python /opt/financial-dashboard/current/ops/oracle/validate_env.py
+ExecStart=/opt/financial-dashboard/current/venv/bin/python -m uvicorn asgi:app --host 127.0.0.1 --port 5000 --workers 1 --log-level info
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+StateDirectory=financial-dashboard
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+NoNewPrivileges=true
+UMask=0077
+MemoryMax=768M
+
+[Install]
+WantedBy=multi-user.target
