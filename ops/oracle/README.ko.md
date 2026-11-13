@@ -79,12 +79,16 @@ sudo journalctl -u financial-dashboard-api -u financial-dashboard-web -n 60 --no
 
 ## 5. 수집기 인계와 프론트 전환
 
-새 HTTPS/API 확인 후 진행한다. Render에서 `DASHBOARD_COLLECTOR_MODE=external`로
-변경해 재배포하고 기존 수집기의 종료를 확인한다. Oracle에서:
+새 HTTPS/API 확인 후 Oracle 수집기를 먼저 실행한다:
 
 ```bash
 sudo systemctl enable --now financial-dashboard-collector
 ```
+
+기존 Render 수집기가 리스를 소유하는 동안 `collector_waiting_for_lease`로 대기하는
+것이 정상이다. Oracle 서비스와 환경 변수 검사가 정상인지 확인한 다음 Render의
+`DASHBOARD_COLLECTOR_MODE=external`을 저장하고 재배포한다. 기존 수집기의 종료와
+새 소유자로의 리스 변경을 확인한다. 임의로 소유권을 강제 변경하지 않는다.
 
 기존 리스가 만료될 때까지 최대 약 60초 기다릴 수 있다. 임의로 DB의 리스나
 KIS 토큰을 삭제하지 않는다. 금 시세, 선물, KRX, 이력 API가 정상이고
@@ -110,3 +114,11 @@ Oracle의 KIS/네이버/환율 공급자 접근을 검증한 것이 아니다.
 실행 중인 API/수집기를 중지한 뒤 current 링크를 새 release로 전환해 재시작한다.
 이전 release를 보관한다. 단순히 서비스 실행 중 current를 바꾸거나 서버에서
 무조건 `git pull`하지 않는다. 이 단계의 자동 배포는 별도 구성한다.
+
+## 2026-11-13 인계 검증 기록
+
+Oracle의 공인 HTTPS, API 및 Vercel Origin의 CORS를 확인했다. Render는 기존
+백엔드 커밋의 수집 모드만 external로 바꿔 재배포했다. 리스 소유자 변경과
+Oracle의 연속 정상 스냅샷을 확인했으며 금 시세·선물·KRX·수집기 상태는 정상이다.
+기존 토큰이나 DB 리스/정책은 수동 변경하지 않았다. 운영 Vercel의
+NEXT_PUBLIC_API_URL 변경·재배포와 실제 프론트 검증은 별도 마지막 단계다.
